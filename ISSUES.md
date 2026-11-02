@@ -4,7 +4,7 @@ This is the work backlog for Super-agent 2.0, a fork of [deepseek-ai/dsh-superag
 
 ## How to use this file
 
-1. Read "Work in progress" and "What is not proven" below.
+1. Read "Already done" and "What is not proven" below.
 2. Pick an item whose dependencies are done, and start from its acceptance criteria.
 3. Work on your own branch and change only what the item needs.
 4. When you finish, set the item's status line to `Done (<branch or commit>)`.
@@ -31,9 +31,9 @@ This is the work backlog for Super-agent 2.0, a fork of [deepseek-ai/dsh-superag
 - Trigger = one incoming event.
 - Mandate = the record of why a Ticket is authorized.
 
-## Work in progress
+## Already done
 
-These are finished on branch `security/attack-chain-tests`, with typecheck, tests and build passing, but not yet committed or run against the real harness. Don't redo them, and branch from that work once it lands, because it touches the listed files. One deliberate behavior change: comments from unlisted people, including human reviewers, no longer reach workers, so teams must add reviewers to the allowed list. `GET state` stays open without a token for the service script's health check, so `scripts/dsh-superagent` did not change.
+These are finished and on `main`, with typecheck, tests and build passing, but not yet run against the real harness. Don't redo them. One deliberate behavior change: comments from unlisted people, including human reviewers, no longer reach workers, so teams must add reviewers to the allowed list. `GET state` stays open without a token for the service script's health check, so `scripts/dsh-superagent` did not change.
 
 | ID | Change | Main files |
 |---|---|---|
