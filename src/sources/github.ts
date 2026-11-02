@@ -10,7 +10,7 @@ import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddres
 import { githubLink, sendGithub } from './github-channel.ts'
 import type { GithubComment, PullRef } from './github-trigger.ts'
 import { observePull, pullsOf, readPull, type Pull } from './github-pull.ts'
-import { health, sourceContext, type Health, type SourceContext } from './host.ts'
+import { health, sourceContext, type Health, type SourceContext, type SourceHost } from './host.ts'
 import { KV } from '../kv.ts'
 import { cursorAt, pause, POLL_HORIZON_MS, pollThreads as pollEach } from './poll.ts'
 import type { Localized, SourceKind } from './kind.ts'
@@ -111,16 +111,23 @@ export const githubKind: SourceKind<GithubConfig> = {
 }
 export const name = 'dsh-superagent-github'
 export const inject = ['orchestrator']
+/**
+ * Registers the GitHub Source and starts its polling, returning the disposer that stops it.
+ *
+ * The host decides how this runs: the harness plugin stops it with the plugin's fiber, and the plain Node host stops it
+ * when the process shuts down.
+ */
+export function startGithub(host: SourceHost): () => Promise<void> {
+  host.sources.register(githubKind)
+  const source = sourceContext(host, githubKind)
+  const controller = new AbortController()
+  // Unhandled rejections terminate the DSH process, so a failure escaping the polling loop is reported as source health instead.
+  const running = watch(source, controller.signal)
+    .catch((error: unknown) => { source.report('github', { state: 'error', detail: String(error) }) })
+  return async () => { controller.abort(); await running }
+}
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.orchestrator.sources.register(githubKind), 'github: source kind')
-  ctx.effect(() => {
-    const source = sourceContext(ctx.orchestrator, githubKind)
-    const controller = new AbortController()
-    // Unhandled rejections terminate the DSH process, so a failure escaping the polling loop is reported as source health instead.
-    const running = watch(source, controller.signal)
-      .catch((error: unknown) => { source.report('github', { state: 'error', detail: String(error) }) })
-    return async () => { controller.abort(); await running }
-  })
+  ctx.effect(() => startGithub(ctx.orchestrator), 'github: source kind')
 }
 /** Returns an error health once `failures` consecutive polls fail, or undefined so a single network interruption stays quiet. */
 export function pollFailure(failures: number, threshold: number, error: unknown): Health | undefined {

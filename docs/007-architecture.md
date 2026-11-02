@@ -24,7 +24,7 @@ flowchart TB
   effects --> store
 ```
 
-`Runtime` (`src/app/runtime.ts`) constructs the application, supplies dependencies, and owns startup and shutdown. `Engine` constructs its own internal parts. The Executor and Assessor call back into the Engine, so Runtime gives them getters rather than requiring construction in a circular order.
+`Runtime` (`src/app/runtime.ts`) constructs the application, supplies dependencies, and owns startup and shutdown. `Engine` constructs its own internal parts. The Executor and Assessor call back into the Engine, so Runtime gives them getters rather than requiring construction in a circular order. The Runtime knows nothing of the host it runs in: it takes a `HostPort` and the agent-side `AgentPorts`, so the DeepSeek Harness and the plain Node host are both hosts of the same engine.
 
 ### Runtime
 
@@ -244,7 +244,7 @@ Each model request binds the Session to the current prompt revision. The revisio
 
 | Glue | Translates |
 | --- | --- |
-| `src/app/runtime.ts` | The composition root: builds the parts with the interfaces they use, registers the routes and the Source host, and starts and stops dsh-superagent |
+| `src/app/runtime.ts` | The composition root: builds the parts with the interfaces they use, registers the routes and the Source host, and starts and stops dsh-superagent. It takes its host and its agent-side ports as arguments, so it runs under the DeepSeek Harness and under the plain Node host alike |
 | `src/app/notices.ts` | Domain events and worker reports into notices and relays for the main Session |
 | `src/app/tools/main.ts`, `src/app/tools/executor.ts` | Tool arguments of the main Session and the Executor Sessions into calls of the core classes, and their results into cards |
 | `src/app/http.ts`, `src/app/views/`, `src/app/api.ts` | HTTP requests into calls, and Store reads into the panel's views; `api.ts` types every route for the panel |
@@ -355,9 +355,16 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/executor/dsh.ts` | The DshExecutor, `WorkerSlots`, `ticketExecution`, `inputMessage` and `mandateInstructions` |
 | `src/runner/port.ts` | The ports the engine depends on instead of the host and the agent runner: `AgentRunner` and `AgentHandle` with their events, `Binder` (prompt sections, tools, skills, tool limits, full access), `HostPort`, `Subprocess`, `TranscriptStore` and `ModelInfo`; `definePorts` marks a bundle of them |
 | `src/runner/dsh/runner.ts` | `DshRunner`, the `AgentRunner` over DeepSeek Harness whose handles are DSH's own agents, and its `Binder`; the worker and router presets |
-| `src/runner/dsh/ports.ts` | The `TranscriptStore`, `ModelInfo` and `Subprocess` over a DSH context, `dshPorts` and `portsOf`, which accepts a DSH context where a host or a test hands one over |
+| `src/runner/dsh/ports.ts` | The `TranscriptStore`, `ModelInfo` and `Subprocess` over a DSH context, and `dshPorts`, which builds the agent-side ports of a context |
 | `src/runner/dsh/host.ts` | The `HostPort` over the DSH plugin context: its logger, effects, Web server and restart, and the setting that has DSH generate no settings page |
+| `src/runner/dsh/runtime.ts` | `dshRuntime`, the engine built for a harness context: its host, its agent-side ports and the runtime over them |
 | `src/runner/dsh/index.ts` | What the DSH implementation exports |
+| `src/host/node.ts` | The `HostPort` over plain Node, for a host that runs without the DeepSeek Harness: its logger, its state directory, its limits, its management server, its shutdown steps and its restart |
+| `src/host/http.ts` | The management HTTP server over Node's `http`: it serves the loopback interface only, and a mounted prefix's handler owns each request |
+| `src/host/subprocess.ts` | The `Subprocess` over Node's `child_process`: the credential scrub a child starts from, the collected output of a stream, and the termination a signal starts |
+| `src/host/models.ts` | The `ModelInfo` of the standalone host: it checks that a configured route names a model and knows no provider of its own, because the CLI behind the runner chooses the model |
+| `src/host/runner.ts` | `EmptyRunner`, the runner of a host with no agent CLI behind it yet: every call that would need an agent fails with `NO_AGENT_CLI` |
+| `src/standalone.ts` | The standalone entry point: the engine, the management server and the Sources in one plain Node process, and the machine settings and agent-side ports of that host |
 | `src/executor/background.ts` | A worker's background work through the runner, the shell jobs its Session owns and its subagents: `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
 | `src/infra/commands.ts` | `Commands`, the CLI transport: `run`; `api` and `pages`, limited to the configured repository and validated; `lark` as the bot; `git`. `CliError` carries the code a command's output reports, such as a GitHub HTTP status, and a command that prints nothing fails with how it ended, never with its arguments; `validItems` skips and counts the malformed items of a list |
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
@@ -431,6 +438,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/delivery.spec.ts` | `AgentDelivery` |
 | `tests/retry-health.spec.ts`, `tests/role-models.spec.ts` | Model budget retries, and the models of the two roles |
 | `tests/runtime.spec.ts` | The whole application on a simulated DeepSeek Harness host, through tools and HTTP |
+| `tests/standalone.spec.ts` | The standalone host: the engine and the management server in one plain Node process, the same-origin and token checks over HTTP, and the credential scrub of a child process |
 | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
 | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
 | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |

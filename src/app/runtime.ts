@@ -1,7 +1,5 @@
 /** Application composition root and lifecycle manager for dsh-superagent. */
 import { panelToken } from './panel-token.ts'
-import { Service, type Context } from '@deepseek-ai/cordis'
-import { dshHost, dshPorts } from '../runner/dsh/index.ts'
 import type { AgentHandle, AgentPorts, HostPort } from '../runner/port.ts'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -46,10 +44,13 @@ const now = (): string => new Date().toISOString()
 
 /**
  * Composition root of dsh-superagent that connects `Store`, `Setup`, `Engine`, `SourceRegistry`, `Effects`, `Outbox`, `Passes`, `Sessions`, `Settings`, `Prompts`, `DshExecutor`, and `MasterAssessor`.
- * Exposes the `SourceHost` service on the Cordis context for source plugins and coordinates startup, setup checks, HTTP route registration, and graceful shutdown.
+ * Exposes the `SourceHost` service for source plugins and coordinates startup, setup checks, HTTP route registration, and graceful shutdown.
  * Locks the state directory before opening SQLite so concurrent processes cannot corrupt or double-migrate state.
+ *
+ * The runtime knows nothing of the host it runs in: it takes a `HostPort` and the agent-side `AgentPorts`, so the DeepSeek
+ * Harness and the plain Node host are both hosts of the same engine.
  */
-export class Runtime extends Service implements SourceHost {
+export class Runtime implements SourceHost {
   readonly store: Store
   readonly setup: Setup
   readonly prompts: Prompts
@@ -75,22 +76,20 @@ export class Runtime extends Service implements SourceHost {
   private stopping?: Promise<void>
   private readonly sourceDeps: SourceContextDeps
   private readonly toolHost: MainToolsHost & ExecutorToolsHost
-  /** The host the engine runs in, and the agent side it runs its sessions on. */
-  private readonly host: HostPort
+  /** The agent side the engine runs its sessions on. */
   private readonly ports: AgentPorts
   /** Non-zero while a main-Session tool is executing an Engine command, suppressing self-triggered domain event notices. */
   private quiet = 0
   /** The bearer token the management API requires; see `src/app/panel-token.ts`. */
   readonly panelToken: string
   /**
-   * @param ctx - the DSH plugin context, which a source plugin reaches `orchestrator` through; the host and agent side are built
-   * from it here and used through their ports from then on.
+   * @param host - the host the engine runs in; its logger, state directory, limits, Web server and restart reach the engine.
+   * @param ports - the agent side the engine runs its sessions on.
+   * @param restart - rebuilds the engine, as after an account change.
    */
-  constructor(ctx: Context, readonly machine: Machine, restart: () => void) {
-    super(ctx, 'orchestrator')
+  constructor(private readonly host: HostPort, ports: AgentPorts, readonly machine: Machine, restart: () => void) {
     const runtime = this
-    const host = this.host = dshHost(ctx, machine, restart)
-    const ports = this.ports = dshPorts(ctx)
+    this.ports = ports
     // Lock the state directory before opening the database so another process cannot migrate or write concurrently.
     mkdirSync(machine.stateDir, { recursive: true, mode: 0o700 })
     this.panelToken = panelToken(machine.stateDir)

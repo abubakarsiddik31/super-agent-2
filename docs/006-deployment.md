@@ -97,7 +97,36 @@ Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) t
 
 After the first start, edit machine limits in **Settings → Deployment** or the DeepSeek Harness Plugin Manager. Changes apply without restart. `stateDir` cannot be changed there. Invalid values or unknown configuration keys prevent startup; the log identifies the key.
 
+## The standalone host
+
+The application also runs as a plain Node process, with no DeepSeek software installed:
+
+```sh
+pnpm start
+```
+
+It serves the management API on the loopback interface and prints the port it chose. Everything else is the same: the same state directory, the same setup checks, the same Sources, the same panel.
+
+| Option | Environment variable | Default |
+| --- | --- | --- |
+| `--state-dir DIR` | `SUPERAGENT_STATE_DIR` | `~/.dsh/state/superagent` |
+| `--port N` | `SUPERAGENT_PORT` | a free port the operating system picks |
+
+The state directory holds the database, the worker shims, the isolated git configuration and the panel token. It is created with mode `0700` and the token with mode `0600`.
+
+The panel is served separately by the development server:
+
+```sh
+pnpm ui:dev
+```
+
+It forwards the API and adds the panel token itself, so the browser never holds it. `SUPERAGENT_API` and `SUPERAGENT_TOKEN_FILE` point it elsewhere.
+
+**What the standalone host cannot do yet.** No coding-agent CLI is behind it, so a Ticket that needs an agent fails with a message that says so. The Sources, the Policy, the panel and the setup checks all work. The runner that closes this gap is described in `docs/spikes/001-cli-runners.md`.
+
 ## Start and stop
+
+Under the DeepSeek Harness:
 
 ```sh
 scripts/dsh-superagent start

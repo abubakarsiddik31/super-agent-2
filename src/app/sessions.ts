@@ -39,7 +39,6 @@ export interface SessionsHost {
  */
 interface SessionBinding { disposers: (() => void)[]; scope?: SkillScope; skills?: { revision: number; dispose: () => void }; subagent?: true }
 
-export { ROUTER_PRESET, WORKER_PRESET } from '../runner/dsh/index.ts'
 /**
  * The DSH tools an Executor Session works with: files, search, the shell and its jobs, the web, skills, its todo list and
  * subagents. It gets no other tool the profile has, whenever it was registered: none that asks or shows a person something,
