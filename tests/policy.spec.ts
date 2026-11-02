@@ -64,11 +64,11 @@ describe('gate', () => {
     expect(anyoneAllowed(base)).toBe(true)
     expect(anyoneAllowed(SettingsSchema.parse({}))).toBe(false)
   })
-  it('assesses follow-ups on Threads with Tickets, explicit from an allowed sender and inferred from anyone else', () => {
+  it('assesses follow-ups on Threads with Tickets from an allowed sender as explicit, and gives anyone else no strength from those Tickets', () => {
     const quiet = { meta: { chatId: CHAT, direct: false, mentioned: false } }
-    expect(policy.gate(unaddressed({ ...quiet, actor: { source: 'feishu', id: 'ou_guest' } }), thread(['ticket']), [])).toMatchObject({ admissible: true, strength: 'inferred', basis: { via: 'followup' } })
+    expect(policy.gate(unaddressed({ ...quiet, actor: { source: 'feishu', id: 'ou_guest' } }), thread(['ticket']), [])).toMatchObject({ admissible: false })
     expect(policy.gate(unaddressed(quiet), thread(['ticket']), [])).toMatchObject({ admissible: true, strength: 'explicit', basis: { via: 'followup', sender: 'Alice' } })
-    expect(policy.gate(github('someone'), thread(), [ticket])).toMatchObject({ admissible: true, strength: 'inferred' })
+    expect(policy.gate(github('someone'), thread(), [ticket])).toMatchObject({ admissible: false })
     // A Thread a ticket follows only for context lends no follow-up: the admission table decides, as on any Thread.
     const context = { ...thread(['ticket']), context: ['ticket'] }
     expect(policy.gate(unaddressed(quiet), context, [ticket])).toMatchObject({ admissible: false })
@@ -139,16 +139,15 @@ describe('admission table', () => {
       const open = setup(withTable({ [CHAT]: { unlistedAddressed: 'explicit' } }, {}, mode))
       expect(open.policy.gate(inChat(CHAT, STRANGER), thread(['ticket']), [])).toMatchObject({ admissible: true, strength: 'explicit',
         basis: { via: 'admission', cell: 'unlistedAddressed' } })
-      // A cell that is not explicit leaves the follow-up inferred, while Eval is on.
+      // A cell that is not explicit leaves the message unadmitted, whatever Tickets the Thread has.
       const strict = setup(withTable({ [CHAT]: { unlistedAddressed: 'ignore' } }, {}, mode))
-      expect(strict.policy.gate(inChat(CHAT, STRANGER), thread(['ticket']), [])).toMatchObject(mode === 'off'
-        ? { admissible: false } : { admissible: true, strength: 'inferred', basis: { via: 'followup' } })
+      expect(strict.policy.gate(inChat(CHAT, STRANGER), thread(['ticket']), [])).toMatchObject({ admissible: false })
     }
   })
-  it('keeps follow-ups on a Thread with Tickets outside the table', () => {
+  it('keeps a listed person\'s follow-ups on a Thread with Tickets outside the table, and judges anyone else by it', () => {
     const strict = setup(withTable({ [OBSERVED]: { listedUnaddressed: 'ignore', unlistedUnaddressed: 'ignore' } }))
     expect(strict.policy.gate(inChat(OBSERVED, MEMBER, false), thread(['ticket']), [])).toMatchObject({ admissible: true, strength: 'explicit', basis: { via: 'followup' } })
-    expect(strict.policy.gate(inChat(OBSERVED, STRANGER, false), thread(['ticket']), [])).toMatchObject({ admissible: true, strength: 'inferred', basis: { via: 'followup' } })
+    expect(strict.policy.gate(inChat(OBSERVED, STRANGER, false), thread(['ticket']), [])).toMatchObject({ admissible: false })
   })
   it('invalidates a Mandate once its cell gives less than the strength it was accepted with, and keeps it while the cell holds', () => {
     const open = withTable({ [CHAT]: { unlistedAddressed: 'explicit' } })

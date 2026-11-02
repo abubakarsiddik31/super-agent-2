@@ -1,4 +1,5 @@
 /** Loopback-only management HTTP routes with same-origin enforcement for the web panel. */
+import { bearerMatches } from './panel-token.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -41,6 +42,7 @@ export interface HttpHost {
   readonly health: Record<string, Health>
   readonly machine: Machine
   readonly masterId: string
+  readonly panelToken: string
   /** Resolves once startup finishes or setup determines what is still missing. */
   readonly ready: Promise<void>
   /** Resolved deployment; throws if read while waiting for setup (`!configured()`). */
@@ -235,6 +237,9 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
       const url = new URL(req.url ?? '/', 'http://localhost')
       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
       if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+      // `GET state` stays open for the service script's health check, which cannot know the state directory; it changes nothing.
+      const health = req.method === 'GET' && url.pathname === '/orchestrator/api/state'
+      if (!health && !bearerMatches(req.headers.authorization, runtime.panelToken)) { json(res, 401, { error: 'Panel token required', token: true }); return }
       try {
         await runtime.ready
         const route = match(table, req.method ?? 'GET', url.pathname.slice('/orchestrator/api/'.length).split('/'))

@@ -13,11 +13,11 @@ type Headers = Record<string, string | undefined>
 function serve(runtime: Partial<Record<keyof HttpHost, unknown>>, host = '127.0.0.1') {
   let handler: Handler = async () => {}
   const ctx = { webServer: { host, port: 3082, register: (route: { handler: Handler }) => { handler = route.handler; return () => {} } } }
-  registerHttp(ctx as never, { ready: Promise.resolve(), ...runtime } as unknown as HttpHost)
+  registerHttp(ctx as never, { ready: Promise.resolve(), panelToken: 'token', ...runtime } as unknown as HttpHost)
   return async (method: string, path: string, body?: unknown, headers: Headers = {}) => {
     let status = 0, text = ''
     const chunks = body === undefined ? [] : [Buffer.from(typeof body === 'string' ? body : JSON.stringify(body))]
-    const sent = Object.fromEntries(Object.entries({ host: '127.0.0.1:3082', 'x-orchestrator-request': '1', ...headers }).filter(([,
+    const sent = Object.fromEntries(Object.entries({ host: '127.0.0.1:3082', 'x-orchestrator-request': '1', authorization: 'Bearer token', ...headers }).filter(([,
       value]) => value !== undefined))
     const req = { method, url: `/orchestrator/api/${path}`, headers: sent, async *[Symbol.asyncIterator]() { yield* chunks } }
     await handler(req, { writeHead: (code: number) => { status = code }, end: (data: string) => { text = data } })

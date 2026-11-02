@@ -121,7 +121,7 @@ it('polls one request at a time, keeps the data while new dependencies load, and
 })
 
 it('tells a dsh-superagent that does not answer from a record it does not have, and words each failure by what failed', async () => {
-  const messages = { offline: 'offline', notRunning: 'not running', serverError: (status: number) => `server ${status}`,
+  const messages = { panelToken: 'token', offline: 'offline', notRunning: 'not running', serverError: (status: number) => `server ${status}`,
     requestFailed: (status: number) => `request ${status}`, setup: () => 'setup', user: ({ code }: { code: string }) => `user ${code}` }
   const call = caller(() => messages)
   const failure = async (answer: () => Promise<Response>) => {

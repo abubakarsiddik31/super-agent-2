@@ -42,6 +42,8 @@ export class Intake extends EnginePart {
         const followed = !!thread.context?.includes(ticketId)
         const resumes = trigger.human && ticket?.ended?.by !== 'human' && !followed
         if (!ticket || (!liveTicket(ticket) && !resumes)) continue
+        // A person who may not steer this ticket reaches neither it nor its worker, so it cannot resume it either; the gate alone judges their message.
+        if (trigger.human && !this.policy().steers(trigger, ticket)) continue
         reached.set(ticketId, { ticket, context: followed && (reached.get(ticketId)?.context ?? true) })
       }
       this.repo.threads.save(thread)

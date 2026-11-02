@@ -17,7 +17,9 @@ The Source records whether a message addresses the agent: `mention` for a mentio
 
 ### Subscriptions: continuing existing work
 
-Every message on a subscribed Thread reaches its subscribed Tickets as context, including messages from bots and CI. This delivery bypasses the gate and grants no new authority. Each Ticket remains limited by its Mandate.
+Messages from bots and CI on a subscribed Thread reach its subscribed Tickets as context, and so do messages from people who may steer the Ticket. This delivery bypasses the gate and grants no new authority. Each Ticket remains limited by its Mandate.
+
+A person may steer a Ticket when they are on the Source's allowed list, explicitly requested that Ticket, or address the agent in a scope whose unlisted-addressed cell is explicit. The host decides this, not a model. Anyone else's message reaches no Worker, does not wake or resume a Ticket, and cannot be attached to one; it takes the Eval path, where the admission table judges it as on any other Thread. Each message a Worker receives says `sender: authorized` or `sender: automated`.
 
 A person's message on a Ticket's own Thread belongs to that Ticket's Executor to decide. The same applies when the main Session attaches a message to a Ticket. While an Executor owns the message, it takes no Eval and gets no Decision. Each Executor either handles the request within its Ticket's scope or hands it back for routing elsewhere.
 
@@ -48,10 +50,10 @@ Human messages that reach no Ticket, including Threads whose Tickets were stoppe
 | Strength | Cases |
 | --- | --- |
 | explicit | A person on the list addresses the agent, or follows up on a Thread that already has a Ticket; a cell of the admission table set to explicit request |
-| inferred | A person not on the list follows up on a Thread with a Ticket, unless their cell of the admission table is explicit; a cell of the admission table set to inferred candidate; a message of a bot on the Source's bot list that addresses the agent or arrives where the Source receives every message |
+| inferred | A cell of the admission table set to inferred candidate; a message of a bot on the Source's bot list that addresses the agent or arrives where the Source receives every message |
 | not admitted | Any other bot's message, everything the admission table ignores, and every inferred case while the accept mode is `off` |
 
-For an unlisted person, an explicit admission cell takes precedence even on a Thread with Tickets and works in every accept mode. Otherwise their follow-up is inferred and is not admitted in `off` mode. Messages on Threads followed only for context use the admission table instead of follow-up strength.
+A Thread's Tickets lend an unlisted person no strength: the admission table alone judges their message. An explicit cell works in every accept mode.
 
 ## Admission
 
@@ -70,7 +72,7 @@ A row has up to three cells. Each cell decides whether a message becomes an expl
 
 Cells for unaddressed messages are available only where the Source receives every message, such as a Feishu chat set to **全部消息** or a GitHub scope with its receive-all switch enabled. A CI result has no sender, so its row offers only the last cell. Bot messages use the bot list instead of these cells.
 
-Setting the unlisted-addressed cell to explicit lets anyone in that scope request work by mentioning the agent. This can be useful for a dedicated support chat. Inferred candidates still depend on the accept mode. Follow-ups normally bypass this table, except that an explicit cell still grants explicit strength.
+Setting the unlisted-addressed cell to explicit lets anyone in that scope request work by mentioning the agent. This can be useful for a dedicated support chat. Inferred candidates still depend on the accept mode. A listed person's follow-ups bypass this table; everyone else's use it.
 
 The admission table is part of the Policy version. Weakening a cell does not immediately stop open Tickets accepted under it. It can revoke their Mandates when they are revalidated before resuming.
 
@@ -124,7 +126,7 @@ A condition on what the Executor may do with its own result, such as when it may
 
 ## Resume and stop
 
-An ended Ticket keeps its Mandate. A person's message on one of its own Threads can resume the same work without a new Eval or Decision, regardless of who sent it. Bots and CI do not wake ended Tickets. The Executor decides whether the request fits the scope and ends the round if it does not.
+An ended Ticket keeps its Mandate. A message on one of its own Threads from a person who may steer it can resume the same work without a new Eval or Decision. Bots and CI do not wake ended Tickets. The Executor decides whether the request fits the scope and ends the round if it does not.
 
 Only three operations change a Mandate: accept creates it, a person's stop withdraws it, and failed revalidation revokes it. A Ticket stopped by a person stays ended and receives nothing more. Work requested there needs a new accept.
 

@@ -119,7 +119,7 @@ const capped = (text: string, limit: number, read: string) =>
  * optional routing note, and a preview of the replied-to message when the worker has not yet seen it.
  */
 export function triggerMessage(trigger: Trigger, link: { source_url?: string; source_url_read?: string }, note?: string, repliesTo?: Trigger) {
-  return { trigger_id: trigger.id, from: trigger.actor.id, thread: threadKey(trigger.threads[0]!), at: trigger.at,
+  return { trigger_id: trigger.id, from: trigger.actor.id, sender: trigger.human ? 'authorized' : 'automated', thread: threadKey(trigger.threads[0]!), at: trigger.at,
     ...capped(trigger.text, TRIGGER_CHARS, `trigger/${trigger.id}`), ...link, ...(note ? { routing_note: note } : {}),
     ...(repliesTo ? { replies_to: { trigger_id: repliesTo.id, preview: repliesTo.text.replace(/\s+/g, ' ').slice(0, 160) } } : {}) }
 }

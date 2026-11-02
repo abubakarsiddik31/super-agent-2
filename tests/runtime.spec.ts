@@ -51,7 +51,7 @@ type HttpHandler = (req: unknown, res: unknown) => Promise<void>
 let http: HttpHandler
 async function api(method: string, path: string): Promise<{ status: number; body: unknown }> {
   let status = 0, text = ''
-  const req = { method, url: `/orchestrator/api/${path}`, headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1' } }
+  const req = { method, url: `/orchestrator/api/${path}`, headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1', authorization: `Bearer ${runtime.panelToken}` } }
   await http(req, { writeHead: (code: number) => { status = code }, end: (data: string) => { text = data } })
   return { status, body: JSON.parse(text) }
 }
@@ -243,18 +243,18 @@ it('relays an explicit member mention as a candidate and creates the ticket, ack
 it('fans a person\'s later thread message out to the live worker as context and tells the orchestrator, without an Eval', async () => {
   const { ticket, sessionId } = await acceptedTicket()
   deliveries.mockClear()
-  const followup = feishu('2', '顺便看看日志', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' })
+  const followup = feishu('2', '顺便看看日志', { mentions: [], root_id: 'om_1' })
   await receive(followup)
   const worker = relays(sessionId)
   expect(worker).toHaveLength(1)
-  expect(worker[0]).toMatchObject({ trigger_id: followup.id, from: 'ou_guest', text: '顺便看看日志' })
+  expect(worker[0]).toMatchObject({ trigger_id: followup.id, from: 'ou_alice', sender: 'authorized', text: '顺便看看日志' })
   expect(worker[0]).not.toHaveProperty('read')
   // Its resource renders the same, from the ticket; no body of it is stored.
   const resource = `ticket/${ticket.id}/input/${key(runtime.store.tickets.get(ticket.id)!.inputs[0]!.id)}`
   expect(JSON.parse(((await runTool(sessionId, 'orchestrator_read', { resource })) as { text: string }).text)).toEqual(worker[0])
   expect(runtime.store.get(resource)).toBeUndefined()
   expect(runtime.store.tickets.get(ticket.id)!.inputs).toEqual([expect.objectContaining({ kind: 'trigger', triggerId: followup.id })])
-  expect(relays(runtime.masterId)).toEqual([{ kind: 'follow_up', trigger_id: followup.id, from: 'ou_guest', thread: `feishu:${CHAT}:om_1`,
+  expect(relays(runtime.masterId)).toEqual([{ kind: 'follow_up', trigger_id: followup.id, from: 'ou_alice', sender: 'authorized', thread: `feishu:${CHAT}:om_1`,
     at: followup.at, text: '顺便看看日志', delivered_to: [{ ticket_id: ticket.id, title: '修复回归', state: 'working' }],
       note: expect.stringContaining('worker has it and decides') }])
   expect(runtime.store.decisions.byThread(`feishu:${CHAT}:om_1`).map(decision => decision.triggerIds)).toEqual([[ticket.origin.triggerId]])
@@ -393,11 +393,11 @@ it('stops a ticket on a person\'s instruction for good, and resumes an ended one
   await runtime.pump()
   expect(runtime.store.tickets.get(ticket.id)!.ended).toBeDefined()
   await expect(route({ kind: 'attach', ticket_id: ticket.id, trigger_id: guest.id })).rejects.toThrow('stopped')
-  // A ticket that ended by itself resumes on a person's message on its thread, whoever sent it.
+  // A ticket that ended by itself resumes on a listed person's message on its thread (tests/attack-chain.spec.ts covers everyone else).
   const other = await acceptedTicket(feishu('20', '@bot 修另一个'))
   await runTool(other.sessionId, 'orchestrator_report', { state: 'dropped', summary: 'not reproduced' })
   expect(runtime.store.tickets.get(other.ticket.id)!.ended).toBeDefined()
-  await receive(feishu('21', '我这边还能复现', { mentions: [], root_id: 'om_20', sender_id: 'ou_guest' }))
+  await receive(feishu('21', '我这边还能复现', { mentions: [], root_id: 'om_20' }))
   await runtime.pump()
   const resumed = runtime.store.tickets.get(other.ticket.id)!
   expect(resumed.ended).toBeUndefined()
@@ -542,7 +542,7 @@ it('projects read models for the management page and removes thread subscription
   expect(ticketList(viewsOf(runtime), 'working', 0, 20).items).toEqual([expect.objectContaining({ id: ticket.id, stage: 'working' })])
   expect(ticketList(viewsOf(runtime), 'open', 0, 20).items).toEqual([expect.objectContaining({ id: ticket.id, stage: 'working', sessionId: `worker-${ticket.id}`, strength: 'explicit' })])
   expect(ticketDetail(viewsOf(runtime), ticket.id)).toMatchObject({ mandate: { strength: 'explicit' }, decision: { kind: 'accept' }, threads: [expect.objectContaining({ key: threadKeyValue, title: '@bot 修一下回归' })], channels: [expect.objectContaining({ source: 'feishu' })] })
-  const follow = feishu('20', '补充：日志在这里', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' })
+  const follow = feishu('20', '补充：日志在这里', { mentions: [], root_id: 'om_1' })
   await receive(follow)
   expect(threadList(viewsOf(runtime), 'subscribed', 0, 20).items).toEqual([expect.objectContaining({ key: threadKeyValue, lastAt: follow.at, tickets: [{ id: ticket.id, title: '修复回归', state: 'open' }] })])
   const detail = threadDetail(viewsOf(runtime), threadKeyValue, undefined, 50)!
@@ -786,9 +786,6 @@ it('keeps pages of Source reads, prompt previews and Feishu message links in mem
   expect(await runTool(runtime.masterId, 'orchestrator_read', { resource: `trigger/${message.id}` })).toMatchObject({ source_url: link })
   // An AppLink is found by the links read since dsh-superagent started.
   expect((await api('GET', `search?q=${encodeURIComponent(link)}`)).body).toMatchObject({ items: [expect.objectContaining({ id: message.id })] })
-  const config = runtime.prompts.current().config
-  const { previews } = await runTool(runtime.masterId, 'orchestrator_prompts_save', { config, preview: true }) as { previews: { read: string }[] }
-  expect(await runTool(runtime.masterId, 'orchestrator_read', { resource: previews[0]!.read, offset: 4000 })).toMatchObject({ offset: 4000 })
   expect(runtime.store.keys('').filter(name => /-read:|source-link:|prompt-preview\//.test(name))).toEqual([])
 })
 
@@ -949,9 +946,6 @@ it('pauses and resumes processing as its own action, a setting outside every blo
   await expect(runtime.settings.save('executor', { ...draft, paused: false }, revision, 'panel')).rejects.toThrow('paused')
   await runtime.settings.save('executor', { ...draft, maxWorkers: 5 }, revision, 'panel')
   expect(runtime.store.settings()).toMatchObject({ paused: true, executor: { maxWorkers: 5 } })
-  // The orchestrator pauses and resumes the same way, through the settings tool's pause block.
-  await runTool(runtime.masterId, 'orchestrator_settings_save', { block: 'pause', value: { paused: false }, revision: 0 })
-  expect(runtime.store.settings().paused).toBe(false)
 })
 
 it('runs setup again while the Feishu bot check failed, and restores the process environment when git fails its check', async () => {
@@ -1227,7 +1221,7 @@ it('resumes several ended tickets on one thread from one message without the lau
   await runTool(first.sessionId, 'orchestrator_trigger_handback', { trigger_id: another.id, reason: 'Another change.' })
   const second = await acceptedTicket(another)
   for (const ticket of [first, second]) await runTool(ticket.sessionId, 'orchestrator_report', { state: 'dropped', summary: 'nothing to do' })
-  await receive(feishu('32', '还有问题', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' }))
+  await receive(feishu('32', '还有问题', { mentions: [], root_id: 'om_1' }))
   await vi.waitFor(() => expect([first, second].map(ticket => runtime.store.tickets.get(ticket.ticket.id)!.ended)).toEqual([undefined, undefined]), { timeout: 3000 })
   await vi.waitFor(() => expect([first, second].map(ticket => runtime.store.tickets.get(ticket.ticket.id)!.assignments.at(-1)!.state)).toEqual(['running', 'running']), { timeout: 3000 })
 })
@@ -1302,7 +1296,7 @@ it('refuses a settings save with an unknown model or a Source kind that is not i
   const request = async (method: string, path: string, body?: unknown) => {
     let status = 0, text = ''
     const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))]
-    const req = { method, url: `/orchestrator/api/${path}`, headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1' }, async *[Symbol.asyncIterator]() { yield* chunks } }
+    const req = { method, url: `/orchestrator/api/${path}`, headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1', authorization: `Bearer ${runtime.panelToken}` }, async *[Symbol.asyncIterator]() { yield* chunks } }
     await http(req, { writeHead: (code: number) => { status = code }, end: (data: string) => { text = data } })
     return { status, body: JSON.parse(text) as Record<string, unknown> }
   }
@@ -1384,7 +1378,7 @@ it('applies a changed prompt size limit to the next save and request without a r
   const put = async (config: unknown) => {
     let status = 0, text = ''
     const chunks = [Buffer.from(JSON.stringify({ config, baseRevision: next.prompts.current().revision }))]
-    const req = { method: 'PUT', url: '/orchestrator/api/prompts', headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1' }, async *[Symbol.asyncIterator]() { yield* chunks } }
+    const req = { method: 'PUT', url: '/orchestrator/api/prompts', headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1', authorization: `Bearer ${runtime.panelToken}` }, async *[Symbol.asyncIterator]() { yield* chunks } }
     await http(req, { writeHead: (code: number) => { status = code }, end: (data: string) => { text = data } })
     return { status, body: JSON.parse(text) as Record<string, unknown> }
   }
@@ -1491,76 +1485,12 @@ it('fails a ticket at once on a worker error that is not passing, and relays it'
   expect(relays(runtime.masterId).at(-1)).toMatchObject({ kind: 'worker_report', ticket: { ticket_id: ticket.id }, state: 'failed' })
 })
 
-it('refuses the main Session a bash command that runs sleep and a long job wait, as reports arrive by themselves, and no worker', async () => {
-  const bash = (command: string) => ({ name: 'bash', arguments: { command, description: 'x' } })
-  const main = guards.get(runtime.masterId)!
-  for (const command of ['sleep 60; echo done', 'cd x && sleep 5', 'gh pr checks 7 || sleep 30', 'echo a\nsleep 90', 'while true; do sleep 30; done',
-    '(sleep 5)', '/bin/sleep 240', 'while sleep 30; do gh pr checks 7; done', 'if sleep 5; then gh pr view 7; fi', '{ sleep 60; }', '! sleep 5',
-    'nohup sleep 60', 'exec sleep 60', 'time sleep 60', 'until sleep 1; do :; done', 'command sleep 5', 'env sleep 5'])
-    expect(main(bash(command)), command).toMatch(/^Reports, follow_up notices, new candidates and a background job's end/)
-  // A command that names sleep as data, not at a command position, runs.
-  for (const command of ['gh api repos/acme/widgets/pulls', 'echo "sleep"', 'grep sleep file', 'sleeper --help', 'command -v sleep'])
-    expect(main(bash(command)), command).toBeUndefined()
-  // A command that asks to hold the step longer than 30 seconds, however it waits, under any preset.
-  const timed = (command: string, args: { timeoutMs?: number; run_in_background?: boolean } = {}) =>
-    ({ name: 'bash', arguments: { command, description: 'x', ...args } })
-  expect(main(timed('gh api repos/acme/widgets/pulls', { timeoutMs: 120_000 }))).toMatch(/^Reports/)
-  expect(main(timed("python3 -c 'import time;time.sleep(240)'", { timeoutMs: 600_000 }))).toMatch(/^Reports/)
-  expect(main(timed('gh api repos/acme/widgets/pulls', { timeoutMs: 20_000 }))).toBeUndefined()
-  // Under the router preset, the shell moves a command without a timeout to a background job after 5 seconds, and a job
-  // wait without one ends after 5 seconds too; a longer job wait waits for nothing that arrives that way.
-  expect(main(timed('gh pr checks 7 --watch'))).toBeUndefined()
-  expect(main({ name: 'job_output', arguments: { job_id: 'j', wait: true } })).toBeUndefined()
-  expect(main({ name: 'job_output', arguments: { job_id: 'j', wait: true, timeout_ms: 30_000 } })).toMatch(/^Reports/)
-  expect(main({ name: 'job_output', arguments: { job_id: 'j', wait: true, timeout_ms: 5_000 } })).toBeUndefined()
-  expect(main({ name: 'job_output', arguments: { job_id: 'j' } })).toBeUndefined()
-  // A main Session created before runs under standard, whose shell waits 60 seconds by default and whose job waits last 30:
-  // a command without a timeout runs in the background or names one, and a job wait names one.
-  ;(agents.get(runtime.masterId) as unknown as { session: { header: { agentPreset: string } } }).session.header = { agentPreset: 'standard' }
-  expect(main(timed('gh pr checks 7 --watch'))).toMatch(/^This shell waits up to 60 seconds by default: pass timeoutMs of at most 30000/)
-  expect(main(timed('gh pr checks 7 --watch', { run_in_background: true }))).toBeUndefined()
-  expect(main(timed('gh api repos/acme/widgets/pulls', { timeoutMs: 20_000 }))).toBeUndefined()
-  expect(main({ name: 'job_output', arguments: { job_id: 'j', wait: true } })).toMatch(/^Reports/)
-  expect(main({ name: 'job_output', arguments: { job_id: 'j', wait: true, timeout_ms: 5_000 } })).toBeUndefined()
-  // A worker waits for its own work as it needs.
-  const { sessionId } = await acceptedTicket()
-  expect(guards.get(sessionId)!(bash('sleep 60'))).toBeUndefined()
-  // The main Session's role says so.
-  expect(masterPrompt).toContain('Worker reports, follow_up notices, new candidates and a background job\'s end, with its output, arrive by themselves as messages')
-})
-
-it('reads the main Session\'s preset from a registry with or without presetForSession, and takes standard\'s caps when it cannot', async () => {
-  const watch = { name: 'bash', arguments: { command: 'gh pr checks 7 --watch', description: 'x' } }
-  const route = { name: 'orchestrator_route', arguments: { decisions: [] } }
-  const guard = async (registry: Record<string, unknown>, projections?: Record<string, unknown>) => {
-    services.agentPresets = registry
-    if (projections) services.sessionProjections = projections; else delete services.sessionProjections
-    await (await restart()).ready
-    return guards.get(runtime.masterId)!
-  }
-  // A released DSH's registry has no presetForSession: the projection says standard, so standard's caps apply, and the
-  // other tools run.
-  let main = await guard({ select: vi.fn() }, { stateOf: vi.fn((_session: unknown, key: string) => key === 'agentPreset' ? 'standard' : undefined) })
-  expect(main(route)).toBeUndefined()
-  expect(main(watch)).toMatch(/^This shell waits up to 60 seconds by default/)
-  // Without the projection either, the preset it was created with counts: the router preset.
-  main = await guard({ select: vi.fn() })
-  expect([main(route), main(watch)]).toEqual([undefined, undefined])
-  // The registry says standard though the Session was created with the router preset: standard's caps apply.
-  main = await guard({ select: vi.fn(), presetForSession: () => 'standard' })
-  expect(main(watch)).toMatch(/^This shell waits up to 60 seconds by default/)
-  // A registry that fails is read as standard, the safer caps, and the guard does not throw.
-  main = await guard({ select: vi.fn(), presetForSession: () => { throw new Error('no projection') } })
-  expect(main(route)).toBeUndefined()
-  expect(main(watch)).toMatch(/^This shell waits up to 60 seconds by default/)
-})
-
 it('refuses an ended ticket\'s worker its tools, and restricts the main Session to the tools it may use', async () => {
   const { ticket, sessionId } = await acceptedTicket()
   expect(guards.get(sessionId)!()).toBeUndefined()
   runtime.engine.stopTicket(ticket.id)
   expect(guards.get(sessionId)!()).toBe('Ticket ended; new work needs a new authorized ticket')
-  expect(restricts.get(runtime.masterId)).toEqual([{ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }])
+  expect(restricts.get(runtime.masterId)).toEqual([{ allow: ['skill'] }])
   // A worker keeps only the profile's work tools: none that ask a person, change the profile, schedule or start work outside
   // the worker slots, reach other Sessions or edit documents, whenever they were registered.
   expect(restricts.get(sessionId)).toEqual([{ allow: ['read', 'read_image', 'grep', 'bash', 'job_output', 'job_list', 'job_kill', 'web_search', 'skill'] }])

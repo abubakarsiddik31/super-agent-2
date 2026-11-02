@@ -23,21 +23,32 @@ export class ApiError extends Error {
   get missing() { return this.status === 404 && !this.details.unreachable }
 }
 export interface ApiMessages {
-  offline: string; notRunning: string; serverError: (status: number) => string; requestFailed: (status: number) => string
+  panelToken: string; offline: string; notRunning: string; serverError: (status: number) => string; requestFailed: (status: number) => string
   setup: (problem: SetupProblem) => string
   user: (failure: UserFailure) => string
 }
 const isUserError = (code: unknown): code is UserErrorCode => typeof code === 'string' && Object.hasOwn(USER_ERRORS, code)
 
-/** Calls one management endpoint; the `x-orchestrator-request` header marks the request as originating from this page. */
-async function api<T>(messages: ApiMessages, path: string, method: string, body?: unknown): Promise<T> {
+const TOKEN_KEY = 'dsh-superagent-panel-token'
+const storedToken = (): string | null => { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
+/** Asks the operator once for the panel token and keeps it in this browser; returns whether one was given. */
+function askToken(messages: ApiMessages): boolean {
+  const token = window.prompt(messages.panelToken)?.trim()
+  if (!token) return false
+  try { localStorage.setItem(TOKEN_KEY, token) } catch { /* Then it lasts only as long as this prompt's request. */ }
+  return true
+}
+/** Calls one management endpoint; the `x-orchestrator-request` header marks the request as originating from this page, and the bearer token authorizes it. */
+async function api<T>(messages: ApiMessages, path: string, method: string, body?: unknown, asked = false): Promise<T> {
   let response: Response
   const json = body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+  const token = storedToken()
   try {
-    response = await fetch(`/orchestrator/api/${path}`, { method, ...json, headers: { 'x-orchestrator-request': '1', ...json.headers } })
+    response = await fetch(`/orchestrator/api/${path}`, { method, ...json, headers: { 'x-orchestrator-request': '1', ...token ? { authorization: `Bearer ${token}` } : {}, ...json.headers } })
   } catch {
     throw new ApiError(messages.offline, 0, { unreachable: true })
   }
+  if (response.status === 401 && !asked && askToken(messages)) return await api<T>(messages, path, method, body, true)
   const text = await response.text()
   let value: unknown
   try { value = text ? JSON.parse(text) : {} } catch { value = undefined }

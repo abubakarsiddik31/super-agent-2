@@ -202,12 +202,18 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
       const basis = { ...recorded, via: 'admission' as const, cell, ...trigger.addressed ? { addressed: trigger.addressed } : {} }
       // Check explicit admission cells before thread follow-ups so a thread's tickets never weaken an explicit request to a follow-up.
       if (admission === 'explicit') return { admissible: true, strength: 'explicit', basis }
-      // Direct-message threads belong to one sender (no follow-up for others), and inferred follow-ups require an accept mode other than off (when off, the table decides).
-      if (!(trigger.addressed === 'direct' && !allowed) && (allowed || mode !== 'off') && participating(thread, tickets)) {
-        return { admissible: true, strength: allowed ? 'explicit' : 'inferred', basis: { ...recorded, via: 'followup' } }
-      }
+      // Only a listed person's message gains strength from a Thread's tickets: anyone else's is judged by the table, as on any other Thread.
+      if (allowed && participating(thread, tickets)) return { admissible: true, strength: 'explicit', basis: { ...recorded, via: 'followup' } }
       if (admission === 'inferred' && mode !== 'off') return { admissible: true, strength: 'inferred', basis: { ...basis, observation: { mode } } }
       return { admissible: false, reason: !allowed ? 'not_a_member' : receivable && admission === 'ignore' ? 'admission_ignored' : 'no_mention' }
+    },
+    steers(trigger, ticket) {
+      if (allowedSender(settings, trigger.actor)) return true
+      // Whoever explicitly requested this ticket keeps their reach, and so does a person the admission table lets request work by addressing the agent.
+      const { actor, strength } = ticket.mandate
+      if (strength === 'explicit' && actor.source === trigger.source && sameName(actor.id, trigger.actor.id)) return true
+      const scope = listened(sources, trigger.source, trigger.meta)
+      return !!trigger.addressed && scope.listened && admissionOf(settings, trigger.source, scope.row, 'unlistedAddressed') === 'explicit'
     },
     admitsInferred: rules => mode === 'auto' && rules.length > 0 && rules.every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id)),
     revalidate(mandate: Mandate) {

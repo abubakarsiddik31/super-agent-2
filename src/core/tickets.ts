@@ -111,6 +111,8 @@ export class Tickets extends EnginePart {
     const current = this.require(ticketId)
     if (current.ended?.by === 'human') throw new UserError('ticketStopped')
     if (!liveTicket(current) && !this.policy().revalidate(current.mandate)) throw new UserError('mandateRevoked')
+    // Attaching delivers the message to the worker, so the main Session cannot use it to give a person a reach the host refused them.
+    if (trigger.human && !this.policy().steers(trigger, current)) throw new UserError('senderCannotSteer')
     return trigger
   }
   /**

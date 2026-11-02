@@ -52,8 +52,8 @@ it('delivers nothing to a ticket a person stopped while an earlier ticket\'s del
   const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
   const two = await h.acceptedTicket(feishu('5', '@bot 修二'))
   await h.runtime.settings.pause(true, 'panel')
-  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' }))
-  h.runtime.receive(feishu('6', '二的补充', { mentions: [], root_id: 'om_5', sender_id: 'ou_guest' }))
+  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1' }))
+  h.runtime.receive(feishu('6', '二的补充', { mentions: [], root_id: 'om_5' }))
   // Tickets are processed newest-first, so holding ticket two pauses the pass before ticket one is delivered.
   const gate = deferred()
   const held = holdSession(two.sessionId, gate.promise)
@@ -69,7 +69,7 @@ it('delivers nothing to a ticket a person stopped while an earlier ticket\'s del
 it('drops a delivery whose ticket a person stopped while it waited for the worker Session', async () => {
   const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
   await h.runtime.settings.pause(true, 'panel')
-  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' }))
+  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1' }))
   const gate = deferred()
   const held = holdSession(one.sessionId, gate.promise)
   const resumed = h.runtime.settings.pause(false, 'panel')
@@ -150,7 +150,7 @@ it('wakes an idle worker for a person\'s message at once, in the slot kept beyon
   h.agents.get(one.sessionId)!.status = 'idle'
   const two = await h.acceptedTicket(feishu('5', '@bot 修二'))
   expect(h.agents.get(two.sessionId)!.status).toBe('running')
-  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' })); await h.runtime.idle()
+  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1' })); await h.runtime.idle()
   expect(h.runtime.store.tickets.get(one.ticket.id)!.undelivered).toEqual([])
   expect(h.agents.get(one.sessionId)!.status).toBe('running')
 })
@@ -184,7 +184,7 @@ it('records on the ticket that its worker Session could not be created again', a
     if (id === one.sessionId) throw new Error('The Session store is offline')
     return h.resolveDefault(id)
   })
-  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1', sender_id: 'ou_guest' })); await h.runtime.idle()
+  h.runtime.receive(feishu('2', '一的补充', { mentions: [], root_id: 'om_1' })); await h.runtime.idle()
   expect(h.runtime.store.tickets.get(one.ticket.id)).toMatchObject({ delivery: { error: expect.stringContaining('The Session store is offline') } })
 })
 
@@ -906,10 +906,10 @@ describe('the Executor\'s parts', () => {
       at: '2026-09-01T00:00:00Z', text: 'Which page?', meta: {} } as Trigger
     const reply = { ...asked, id: 'tr2', text: 'The login page. '.repeat(50) }
     const card = triggerMessage(reply, { source_url: 'https://x' }, 'see the log', asked)
-    expect(card).toEqual({ trigger_id: 'tr2', from: 'ou_a', thread: 'feishu:oc:om_1', at: '2026-09-01T00:00:00Z', text: expect.stringMatching(/^The login page\./),
+    expect(card).toEqual({ trigger_id: 'tr2', from: 'ou_a', sender: 'authorized', thread: 'feishu:oc:om_1', at: '2026-09-01T00:00:00Z', text: expect.stringMatching(/^The login page\./),
       chars: reply.text.length, read: 'trigger/tr2', source_url: 'https://x', routing_note: 'see the log', replies_to: { trigger_id: 'tr1', preview: 'Which page?' } })
     expect(card.text).toHaveLength(601)
-    expect(triggerMessage(asked, {})).toEqual({ trigger_id: 'tr1', from: 'ou_a', thread: 'feishu:oc:om_1', at: asked.at, text: 'Which page?' })
+    expect(triggerMessage(asked, {})).toEqual({ trigger_id: 'tr1', from: 'ou_a', sender: 'authorized', thread: 'feishu:oc:om_1', at: asked.at, text: 'Which page?' })
     expect(JSON.parse(inputMessage({ id: 'i1', kind: 'trigger', triggerId: 'tr2', at: '' }, card)!)).toEqual(card)
     expect(JSON.parse(inputMessage({ id: 'i1', kind: 'trigger', triggerId: 'gone', at: '' })!)).toEqual({ trigger_id: 'gone', read: 'trigger/gone' })
     expect(inputMessage({ id: 'i2', kind: 'text', at: '', text: 'Please also update the docs' })).toBe('Please also update the docs')

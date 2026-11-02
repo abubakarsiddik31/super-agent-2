@@ -29,6 +29,7 @@ function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket }:
   const policy: Policy = {
     get version() { return version }, get paused() { return paused }, evalTimeoutMs: 60_000,
     gate: (t, thread) => !t.human ? { admissible: false, reason: 'not human' } : t.actor.id === 'alice' ? { admissible: true, strength: 'explicit', basis: { via: 'listed' } } : thread.subscriptions.length ? { admissible: true, strength: 'inferred', basis: { via: 'followup' } } : { admissible: false, reason: 'not a member' },
+    steers: () => true,
     revalidate: () => version !== 'revoked',
     admitsInferred: rules => rules.length > 0,
     ...policyOverrides,

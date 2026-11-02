@@ -158,11 +158,11 @@ Setup must succeed before polling or work starts. Overview lists missing require
 
 ### Management API
 
-The panel uses a local HTTP API that agents can also call. `SETUP.md` uses it to save settings, and the service script reads `GET state`.
+The panel uses a local HTTP API. `SETUP.md` uses it to save settings, and the service script reads `GET state`.
 
-Send requests to `http://127.0.0.1:<port>/orchestrator/api/` with `x-orchestrator-request: 1`. The host must be `127.0.0.1:<port>` or `localhost:<port>`. Missing headers or an `Origin` from another site receive 403.
+Send requests to `http://127.0.0.1:<port>/orchestrator/api/` with `x-orchestrator-request: 1` and `authorization: Bearer <token>`, where the token is the `panel-token` file in the state directory, created on first start with mode 0600. Only `GET state` works without it. The panel asks for the token once per browser. The token keeps out other OS users, web pages and anything that only knows the API; it is not a boundary against a worker until workers are isolated, because they run as the same OS user. The host must be `127.0.0.1:<port>` or `localhost:<port>`. Missing headers or an `Origin` from another site receive 403.
 
-API saves have the panel's permissions. They can change execution environment and setup account fields, unlike saves made through the main Session's tools.
+API saves have the panel's permissions. The main Session has no tool that saves settings or prompts.
 
 Agents may rely on these routes and fields. The other routes in `src/app/api.ts` serve the panel and change with it.
 
@@ -208,8 +208,9 @@ Changing a repository or CLI runs the corresponding setup check first. A failed 
 
 ```sh
 api=http://127.0.0.1:3082/orchestrator/api
-rev=$(curl -s -H 'x-orchestrator-request: 1' $api/settings | jq '.sources[] | select(.id == "github") | .revision')
-curl -s -X PUT -H 'x-orchestrator-request: 1' -H 'content-type: application/json' $api/settings/source:github \
+auth="authorization: Bearer $(cat <stateDir>/panel-token)"
+rev=$(curl -s -H 'x-orchestrator-request: 1' -H "$auth" $api/settings | jq '.sources[] | select(.id == "github") | .revision')
+curl -s -X PUT -H 'x-orchestrator-request: 1' -H "$auth" -H 'content-type: application/json' $api/settings/source:github \
   -d "{\"value\": {\"enabled\": true, \"config\": {\"repository\": \"acme/widgets\", \"cli\": \"$HOME/.local/bin/gh-agent\"}}, \"revision\": $rev}"
 ```
 

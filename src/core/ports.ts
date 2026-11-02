@@ -18,6 +18,8 @@ export interface Policy {
   version: string
   paused: boolean
   gate(trigger: Trigger, thread: Thread, tickets: Ticket[]): GateResult
+  /** Whether a person's message may reach this ticket's worker: their words steer work that runs commands, so the host decides this, never a model. */
+  steers(trigger: Trigger, ticket: Ticket): boolean
   /** Re-check a mandate's gate-layer basis under this policy, such as before an ended ticket resumes. */
   revalidate(mandate: Mandate): boolean
   /** Whether an inferred candidate may be accepted on the rules its assessment matched: assessments accept, and each rule is enabled. */
