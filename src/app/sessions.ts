@@ -1,11 +1,6 @@
-/** Lifecycle, prompt/tool/skill decoration, message delivery, and budget retry tracking for orchestrator and worker DSH sessions. */
-import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { MessageId } from '@deepseek-ai/dsh-llm'
-import { scopeParentOf } from '@deepseek-ai/dsh-scope'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+/** Lifecycle, prompt/tool/skill decoration, message delivery, and budget retry tracking for orchestrator and worker sessions. */
 import { dirname } from 'node:path'
-import { z } from 'zod'
+import type { AgentHandle, AgentPorts, Binder, Role, SkillScope } from '../runner/port.ts'
 import { key, liveTicket, type Ticket } from '../core/index.ts'
 import { mandateInstructions, ticketOfSession } from '../executor/dsh.ts'
 import type { HealthEntry } from '../infra/health.ts'
@@ -22,8 +17,8 @@ import type { RegisterTool, Tool } from './tools/tool.ts'
 
 /** Host dependencies used by `Sessions`. */
 export interface SessionsHost {
-  /** DSH Cordis context: sessions, agents, persistence, and their events. */
-  readonly context: Context
+  /** The agent side: the runner that hosts the sessions, their transcripts, the model service and the logger. */
+  readonly ports: AgentPorts
   readonly store: Pick<Store, 'tickets' | 'settings' | 'get' | 'set' | 'keys'>
   readonly prompts: Pick<Prompts, 'current' | 'version' | 'compose' | 'skills'>
   readonly effects: Pick<Effects, 'enqueue' | 'handle' | 'idle' | 'pending'>
@@ -35,23 +30,16 @@ export interface SessionsHost {
   /** Execution environment variables for `ticket`, rendered into its worker's system prompt. */
   environment(ticket: Ticket): Variable[]
   /** Tools to register on the main Session (`ticket === undefined`) or on `ticket`'s worker Session. */
-  tools(agent: Agent, ticket?: Ticket): Tool[]
+  tools(agent: AgentHandle, ticket?: Ticket): Tool[]
 }
 
 /**
  * What Sessions registered for an agent it decorated: the releases of its prompt section, tools and skill scope, the scope
  * its skills are registered in, and the skills of one prompt revision; for a worker's subagent, only its tool limits.
  */
-interface SessionBinding { disposers: (() => void)[]; scope?: Context; skills?: { revision: number; dispose: () => void }; subagent?: true }
+interface SessionBinding { disposers: (() => void)[]; scope?: SkillScope; skills?: { revision: number; dispose: () => void }; subagent?: true }
 
-/** The agent presets Executor Sessions and the main Session are created with, which the bundle's patch defines. */
-export const WORKER_PRESET = 'dsh-superagent-worker', ROUTER_PRESET = 'dsh-superagent-router'
-declare module '@deepseek-ai/cordis' {
-  interface Events {
-    /** DSH's agent preset registry selected `agentPreset` for a Session. */
-    'agent-preset/selected'(sessionId: string, agentPreset: string): void
-  }
-}
+export { ROUTER_PRESET, WORKER_PRESET } from '../runner/dsh/index.ts'
 /**
  * The DSH tools an Executor Session works with: files, search, the shell and its jobs, the web, skills, its todo list and
  * subagents. It gets no other tool the profile has, whenever it was registered: none that asks or shows a person something,
@@ -61,87 +49,74 @@ declare module '@deepseek-ai/cordis' {
 const WORK_TOOLS = ['read', 'write', 'edit', 'read_image', 'glob', 'grep', 'bash', 'pwsh', 'job_output', 'job_list', 'job_kill', 'web_search',
   'web_fetch', 'skill', 'todo_write', 'subagent', 'list_subagent_models', 'send_message', 'list_agents', 'interrupt_agent']
 /**
- * Creates and decorates orchestrator and worker DSH `Agent` sessions with role models, system prompt sections from `Prompts`, runtime skills, and restricted tool sets.
+ * Creates and decorates orchestrator and worker agent sessions with role models, system prompt sections from `Prompts`, runtime skills, and restricted tool sets.
  * `Runtime`, `DshExecutor`, `MasterAssessor`, `Settings`, and management routes/tools use it to ensure sessions, deliver deduplicated messages via `AgentDelivery`, and process ordered `relay` and `notice` effects.
  * Feeds session events into `RetryHealth` to report model budget waits on the `models` `HealthEntry`, and durably records which prompt revisions each session has worked under in `Store` (`KV.sessions.prompts`) to authorize prompt version reads.
  */
 export class Sessions {
   private readonly agentDelivery: AgentDelivery
   /** Decorated agents mapped to their registered disposers and skill scope until the agent is disposed or `Sessions.dispose()` runs. */
-  private readonly bindings = new Map<Agent, SessionBinding>()
+  private readonly bindings = new Map<AgentHandle, SessionBinding>()
   private readonly retryHealth = new RetryHealth()
-  private readonly ctx: Context
+  private readonly ports: AgentPorts
   /** Registers ordered `relay` and `notice` effect handlers that deliver to the main Session. */
   constructor(private readonly host: SessionsHost) {
-    this.ctx = host.context
-    this.agentDelivery = new AgentDelivery(host.context)
+    this.ports = host.ports
+    this.agentDelivery = new AgentDelivery(host.ports)
     // Deliver relays and notices to the main Session in the order they were queued.
     host.effects.handle('relay', ({ text }, requestId) => this.prompt(host.masterId, requestId, text, 'steer'), { ordered: true })
     host.effects.handle('notice', ({ value, summary }, name) => this.inject(name, value, summary), { ordered: true })
   }
   /** Subscribes to host agent and session events so newly created sessions are decorated and model-budget retries are reflected in health. Call once at startup. */
   install(): void {
-    const ctx = this.ctx
-    ctx.on('agent/disposed', ({ agent }) => {
+    const { runner } = this.ports
+    runner.disposed(agent => {
       this.release(agent)
       this.retryHealth.clear(agent.id); this.updateModelHealth()
     })
-    ctx.on('session/event', (session, event) => {
-      const agent = ctx.agents.get(session.id)
-      const binding = agent && agent.session === session ? this.bindings.get(agent) : undefined
-      if (!agent || !binding || binding.subagent) return
+    runner.event((agent, event) => {
+      const binding = this.bindings.get(agent)
+      if (!binding || binding.subagent) return
       this.retryHealth.observe(agent.id, event)
       this.updateModelHealth()
     })
-    ctx.on('agent/created', async ({ agent }) => { await this.decorate(agent); return undefined })
-    // Opening a Session in DSH's Web UI before its first turn may select the default preset for it: select ours again. After
-    // its first turn DSH refuses any selection, which leaves it as it is.
-    ctx.inject(['agentPresets'], child => {
-      child.on('agent-preset/selected', (sessionId, preset) => {
-        const ticketId = ticketOfSession(sessionId), agent = ctx.agents.get(sessionId as SessionId)
-        const ours = sessionId === this.host.masterId ? ROUTER_PRESET : ticketId && this.host.store.tickets.get(ticketId) ? WORKER_PRESET : undefined
-        if (!ours || preset === ours || !agent) return
-        const presets = child.get('agentPresets') as { select(agent: Agent, preset: string): Promise<string> }
-        presets.select(agent, ours).catch(() => {})
-      })
+    runner.created(async agent => { await this.decorate(agent) })
+    // Opening a Session in the host's Web UI before its first turn may select the default preset for it: select ours again. After
+    // its first turn the host refuses any selection, which leaves it as it is.
+    runner.pinRoles(sessionId => {
+      const ticketId = ticketOfSession(sessionId)
+      return sessionId === this.host.masterId ? 'orchestrator' : ticketId && this.host.store.tickets.get(ticketId) ? 'worker' : undefined
     })
-    ctx.on('agent/status', ({ agent, status }) => {
+    runner.status((agent, status) => {
       if (status === 'idle' && !this.host.closing()) { this.retryHealth.clear(agent.id); this.updateModelHealth() }
     })
   }
   /** Resolves or creates session `id` in workspace `cwd`, initializes its role model, decorates it with prompts/skills/tools, sets `danger-full-access` permissions, and renames it to `title`. */
-  async ensure(id: string, cwd: string, title: string, role: 'orchestrator' | 'worker'): Promise<Agent> {
-    const ctx = this.ctx
-    let result = await ctx.sessionController.resolveAgent(id as SessionId)
-    if ('error' in result && result.error.code === 'session/not-found') {
-      const workspace = await ctx.workspaceRegistry.create(cwd)
-      // A Session keeps the preset it was created with, one of the bundle's own (cordis.patch.yml).
-      await ctx.sessionController.create({ sessionId: id as SessionId, workspaceId: workspace.id,
-        agentPreset: role === 'worker' ? WORKER_PRESET : ROUTER_PRESET })
-      result = await ctx.sessionController.resolveAgent(id as SessionId)
-    }
-    if ('error' in result) throw result.error
+  async ensure(id: string, cwd: string, title: string, role: Role): Promise<AgentHandle> {
+    const { runner } = this.ports
+    const agent = await runner.resolve(id) ?? await runner.create({ id, cwd, role })
     const settings = this.host.store.settings()
-    await initializeRoleModel(ctx, result.agent, role === 'orchestrator' ? settings.eval.model : settings.executor.model)
-    await this.decorate(result.agent)
-    ctx.permissionPresets.set(result.agent.session, 'danger-full-access')
-    await ctx.sessionController.rename({ sessionId: id as SessionId, title })
-    return result.agent
+    await initializeRoleModel(this.ports, agent, role === 'orchestrator' ? settings.eval.model : settings.executor.model)
+    await this.decorate(agent)
+    // The Session works without permission prompts.
+    runner.binder(agent).grantFullAccess()
+    await runner.rename(id, title)
+    return agent
   }
   /** Returns whether `sessionId` already holds the message delivered under `requestId`, or `false` if the session does not exist. */
   async holds(sessionId: string, requestId: string): Promise<boolean> {
-    const result = await this.ctx.sessionController.resolveAgent(sessionId as SessionId)
-    return !('error' in result) && await this.agentDelivery.holds(result.agent, key(requestId))
+    const agent = await this.ports.runner.resolve(sessionId).catch(() => undefined)
+    return !!agent && await this.agentDelivery.holds(agent, key(requestId))
   }
   /** Deliver a message once per request id: to the next turn, the current one, or `inject`ed with its label without waking the agent. */
   async prompt(sessionId: string, requestId: string, text: string, mode: 'queue' | 'steer' | { inject: string }, authorize?: () => void,
     accepted?: () => void): Promise<void> {
-    const result = await this.ctx.sessionController.resolveAgent(sessionId as SessionId)
-    if ('error' in result) throw result.error
-    await this.agentDelivery.send(result.agent, key(requestId), text, mode, this.host.lifetime, authorize, accepted)
+    const agent = await this.ports.runner.resolve(sessionId)
+    if (!agent) throw Object.assign(new Error(`Session ${sessionId} does not exist`), { code: 'session/not-found' })
+    await this.agentDelivery.send(agent, key(requestId), text, mode, this.host.lifetime, authorize, accepted)
   }
-  /** The id of the message `prompt` delivers under `requestId`, which DSH's inbox events name it by. */
-  promptedId(requestId: string): MessageId { return messageId(key(requestId)) }
+  /** The id of the message `prompt` delivers under `requestId`, which the runner's inbox events name it by. */
+  promptedId(requestId: string): string { return messageId(key(requestId)) }
   /** Enqueues a steering relay to the main Session; relays are durable and retried by `Effects` until delivered, at most once per `requestId`. */
   relay(requestId: string, text: string): void { this.host.effects.enqueue('relay', requestId, { text }) }
   /** Enqueues a durable background notice for injection into the main Session; a new notice with the same `name` replaces a still-waiting notice of that `name`. */
@@ -153,18 +128,18 @@ export class Sessions {
   }
   /** Injects a notice into the main Session without waking it; no-op if the main Session does not exist yet. */
   private async inject(name: string, value: Record<string, unknown>, summary: string): Promise<void> {
-    const resolved = await this.ctx.sessionController.resolveAgent(this.host.masterId as SessionId)
-    if ('error' in resolved) return
+    const agent = await this.ports.runner.resolve(this.host.masterId).catch(() => undefined)
+    if (!agent) return
     // Deduplicate by notice name and payload hash so retries are idempotent while updated payloads still deliver.
     const text = JSON.stringify(value)
-    await this.agentDelivery.send(resolved.agent, `notice:${name}:${key(text)}`, text, { inject: summary }, this.host.lifetime)
+    await this.agentDelivery.send(agent, `notice:${name}:${key(text)}`, text, { inject: summary }, this.host.lifetime)
   }
   /** Returns the current prompt revision, the active prompt revision of each loaded Session, and whether the main Session still has a pending `'prompts'` notice. */
   status() {
     const { store, prompts, effects } = this.host
     const sessions = store.keys(KV.sessions.prompts).flatMap(name => {
       const sessionId = name.slice(KV.sessions.prompts.prefix.length), revision = store.get(name)?.at(-1)
-      return this.ctx.agents.get(sessionId as SessionId) && revision !== undefined ? [{ sessionId, revision }] : []
+      return this.ports.runner.get(sessionId) && revision !== undefined ? [{ sessionId, revision }] : []
     })
     return { revision: prompts.current().revision, sessions, notificationPending: effects.pending('notice', 'prompts') }
   }
@@ -177,17 +152,9 @@ export class Sessions {
   mayRead(sessionId: string, revision: number): boolean {
     return revision === this.promptVersion(sessionId).revision || (this.host.store.get(KV.sessions.prompts(sessionId)) ?? []).includes(revision)
   }
-  /** Returns a tool registrar for `agent` that renders tool output as JSON text and attaches `output.image` as an image when present. */
-  private registerTool(agent: Agent, binding: SessionBinding): RegisterTool {
-    return (name, description, schema, execute) => {
-      binding.disposers.push(agent.ctx.tools.register({ name, description, parameters: z.toJSONSchema(schema),
-        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => {
-          const text = { type: 'text' as const, text: JSON.stringify(value) }
-          const image = value && typeof value === 'object' && 'image' in value ? (value as { image: never }).image : undefined
-          return image ? [text, { type: 'image' as const, attachment: image }] : [text]
-        } },
-        execute: (args, execution) => execute(schema.parse(args), execution.signal) }))
-    }
+  /** Returns a tool registrar for the agent's binder that renders tool output as JSON text and attaches `output.image` as an image when present. */
+  private registerTool(binder: Binder, binding: SessionBinding): RegisterTool {
+    return (name, description, schema, execute) => { binding.disposers.push(binder.registerTool({ name, description, schema, execute })) }
   }
   /** Returns `sessionId`'s active model-budget retry state (`{ model_retry }`) for status listings, or `{}` when not waiting on one. */
   modelRetry(sessionId: string | undefined) {
@@ -200,11 +167,11 @@ export class Sessions {
       ? { state: 'error', detail: retries.slice(0, 5).map(item => `${item.sessionId}: ${item.provider} is over its model budget; retried ${item.attempts} times, waiting since ${item.since}; the model and retry policy are unchanged`).join('; ') + (retries.length > 5 ? `; ${retries.length - 5} more Sessions` : ''), at: retries.at(-1)!.lastAt }
       : { state: 'ready', detail: 'No managed Session is waiting on a model budget retry' })
   }
-  private ticketOf(agent: Agent): Ticket | undefined {
+  private ticketOf(agent: AgentHandle): Ticket | undefined {
     const ticketId = ticketOfSession(agent.id)
     return ticketId === undefined ? undefined : this.host.store.tickets.get(ticketId)
   }
-  private async decorate(agent: Agent): Promise<void> {
+  private async decorate(agent: AgentHandle): Promise<void> {
     if (this.bindings.has(agent)) return
     const host = this.host
     const master = agent.id === host.masterId
@@ -215,28 +182,28 @@ export class Sessions {
     this.retryHealth.restore(agent.id, agent.session.snapshotEvents())
     if (agent.status === 'idle') this.retryHealth.clear(agent.id)
     this.updateModelHealth()
-    // Disable variable interpolation so literal ${{ ... }} expressions in team prompts are preserved.
-    binding.disposers.push(agent.ctx.systemPrompt.section({ name: 'dsh-superagent-policy', order: 9999, interpolate: false, text: context => {
-      const version = this.promptFor(agent, context.signal !== undefined)
+    const binder = this.ports.runner.binder(agent)
+    binding.disposers.push(binder.addPromptSection({ name: 'dsh-superagent-policy', order: 9999, text: request => {
+      const version = this.promptFor(agent, request.bound)
       const current = ticket && host.store.tickets.get(ticket.id)
       const composed = host.prompts.compose(version.config, master ? 'orchestrator' : 'worker', current ? host.environment(current) : undefined)
       return `[dsh-superagent prompt revision ${version.revision}]\n${composed}\n${current ? mandateInstructions(current.mandate) : ''}`
     }, ...(master ? { complete: true } : {}) }))
     // A recreated skill scope (e.g. after the skills service restarts) starts empty, so reset `binding.skills` before rebinding.
-    const skillScope = agent.ctx.inject(['skills'], scope => {
+    const skills = binder.registerSkill(scope => {
       binding.scope = scope
       binding.skills = undefined
       this.bindSkills(binding, host.prompts.current())
     })
-    binding.disposers.push(() => { skillScope.dispose().catch((error: unknown) => { this.ctx.logger.warn('dsh-superagent could not release a skill scope: %s', String(error)) }) })
-    await skillScope
+    binding.disposers.push(skills.release)
+    await skills.ready
     // Bail out if the agent was disposed while awaiting the skill scope.
     if (this.bindings.get(agent) !== binding) return
-    const register = this.registerTool(agent, binding)
+    const register = this.registerTool(binder, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
       // The main Session reads untrusted text and can reply in public, so it gets no tool that reaches the machine: no shell, no file reads, no jobs.
-      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill'] }))
+      binding.disposers.push(binder.allowTools(['skill']))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.
       binding.disposers.push(...this.workOnly(agent, ticket!.id))
@@ -245,14 +212,12 @@ export class Sessions {
   /**
    * An Executor Session's tools: only the profile's work tools, which DSH requires to be known, and none once its ticket
    * ended. A failed or blocked worker keeps its tools, so a person may continue it in its Session; only automated input waits
-   * (see the executor). Read inherited tools through the parent scope, which includes the preset's tools. The global view
-   * misses preset tools; the agent's own view also includes local tools such as subagent, which restrict refuses to name.
+   * (see the executor). The runner reads the inherited tools through the parent scope, which includes the preset's tools.
    */
-  private workOnly(agent: Agent, ticketId: string): (() => void)[] {
+  private workOnly(agent: AgentHandle, ticketId: string): (() => void)[] {
     const store = this.host.store
-    const parent = scopeParentOf(agent)
-    const allow = WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
-    return [agent.ctx.tools.restrict({ allow }), agent.ctx.tools.guard(() => {
+    const binder = this.ports.runner.binder(agent)
+    return [binder.allowTools(binder.availableTools(WORK_TOOLS)), binder.guardTools(() => {
       const current = store.tickets.get(ticketId)
       return !current || !liveTicket(current) ? 'Ticket ended; new work needs a new authorized ticket' : undefined
     })]
@@ -262,11 +227,13 @@ export class Sessions {
    * permissions, gets the same work tools as the worker, and none once the worker's ticket ended. Any other agent is left as
    * it is.
    */
-  private limitSubagent(agent: Agent): void {
-    let parent = agent.session.header.parentSession
+  private limitSubagent(agent: AgentHandle): void {
+    const { runner } = this.ports
+    let parent = runner.parentId(agent)
     // Up the subagents' parents to the worker, which are loaded while their subagents run.
     for (let depth = 0; parent !== undefined && ticketOfSession(parent) === undefined && depth < 8; depth++) {
-      parent = this.ctx.agents.get(parent)?.session.header.parentSession
+      const next = runner.get(parent)
+      parent = next && runner.parentId(next)
     }
     const ticketId = parent === undefined ? undefined : ticketOfSession(parent)
     if (ticketId === undefined || !this.host.store.tickets.get(ticketId)) return
@@ -282,13 +249,12 @@ export class Sessions {
       const bundled = name === 'feishu' || name === 'github' ? bundledSkills[name] : undefined
       const body = version.config.skills[name] ?? ''
       const description = bundled?.description ?? (body.replace(/\s+/g, ' ').slice(0, 120) || 'Custom dsh-superagent operational skill.')
-      disposers.push(scope.skills.register({ name: `${SKILL_PREFIX}${name}`, description, content, source: 'runtime',
-        ...(bundled ? { resourceBase: { kind: 'directory' as const, path: dirname(bundled.path) } } : {}) }))
+      disposers.push(scope.register({ name: `${SKILL_PREFIX}${name}`, description, content, ...(bundled ? { directory: dirname(bundled.path) } : {}) }))
     }
     binding.skills = { revision: version.revision, dispose: () => { disposers.forEach(dispose => dispose()) } }
   }
   /** Return the current prompt version, updating the agent's skills and recording the revision in Store when bound to a model request. */
-  private promptFor(agent: Agent, bind: boolean): PromptVersion {
+  private promptFor(agent: AgentHandle, bind: boolean): PromptVersion {
     const version = this.host.prompts.current()
     if (!bind) return version
     const binding = this.bindings.get(agent)
@@ -300,13 +266,13 @@ export class Sessions {
     return version
   }
   /** Releases registrations for `agent` in reverse order (LIFO); disposing its skill scope releases its skills as well. */
-  private release(agent: Agent): void {
+  private release(agent: AgentHandle): void {
     const binding = this.bindings.get(agent)
     if (!binding) return
     this.bindings.delete(agent)
     binding.skills?.dispose()
     for (const dispose of binding.disposers.splice(0).reverse()) {
-      try { dispose() } catch (error) { this.ctx.logger.warn('dsh-superagent could not release what it registered for a Session: %s', String(error)) }
+      try { dispose() } catch (error) { this.ports.logger.warn('dsh-superagent could not release what it registered for a Session: %s', String(error)) }
     }
   }
   /** Releases prompt sections, skills, and tools registered by `Sessions` across all decorated agents. */

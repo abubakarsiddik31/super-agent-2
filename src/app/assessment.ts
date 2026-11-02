@@ -1,5 +1,5 @@
 /** Proactive candidate assessment for the main Session: relays candidate cards, serves bounded context reads, and records outcomes. */
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { AgentHandle } from '../runner/port.ts'
 import { z } from 'zod'
 import { reasonText, threadKey, type Assessor, type AssessmentOutcome, type Candidate, type EngineForMainSession,
   type Trigger } from '../core/index.ts'
@@ -222,7 +222,7 @@ export class MasterAssessor implements Assessor {
    * Serves bounded paginated text or image attachments from the evaluation's thread context or repository for
    * `orchestrator_eval_read`; `agent` is the main Session, which receives images as attachments.
    */
-  async read(agent: Agent, read: EvalRead, signal: AbortSignal) {
+  async read(agent: AgentHandle, read: EvalRead, signal: AbortSignal) {
       const { candidate, trigger } = this.evalFor(read.trigger_id)
       await this.seed(candidate.evalId, trigger, signal)
       const { cache } = this.reads(candidate.evalId, trigger)
@@ -235,7 +235,8 @@ export class MasterAssessor implements Assessor {
         const source = this.host.threadContext(trigger)
         if (!source) throw new Error(NO_CONTEXT)
         const key = read.image_id!.slice(read.image_id!.indexOf('/') + 1)
-        return source.image(agent, commands, image, key, this.host.deployment.stateDir, signal)
+        // Sources still read the image as an attachment through the runner's own agent object (see `Source.image`).
+        return source.image(agent as unknown as Parameters<typeof source.image>[0], commands, image, key, this.host.deployment.stateDir, signal)
       }
       const cacheKey = JSON.stringify([read.resource, read.path, read.cursor, read.message_id])
       if (read.offset > 0) {

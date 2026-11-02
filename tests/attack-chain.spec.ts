@@ -13,7 +13,9 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { registerHttp } from '../src/app/http.ts'
 import { PANEL_TOKEN_FILE } from '../src/app/panel-token.ts'
 import { commentTrigger } from '../src/sources/github-trigger.ts'
+import { Sessions } from '../src/app/sessions.ts'
 import { startRuntime, type Host } from './fixtures/host.ts'
+import { recordingPorts } from './fixtures/ports.ts'
 
 const AGENT = 'agent-bot', ISSUE = { number: 7, isPr: false }
 const comment = (id: number, login: string, body: string) => commentTrigger({ id, body, user: { login, type: 'User' }, created_at: `2026-09-09T00:00:0${id}Z`,
@@ -76,8 +78,27 @@ it('labels what reaches a worker: a listed person as authorized, a bot as automa
 it('gives the main Session no tool that changes settings, prompts or the allowed list, and no way to reach the machine', async () => {
   const names = [...h.tools.get(h.runtime.masterId)!.keys()]
   for (const name of ['orchestrator_settings_save', 'orchestrator_prompts_save', 'orchestrator_policy_sync']) expect(names).not.toContain(name)
-  const sessions = readFileSync(new URL('../src/app/sessions.ts', import.meta.url), 'utf8')
-  expect(sessions).toContain("agent.ctx.tools.restrict({ allow: ['skill'] })")
+})
+
+/** A `Sessions` over recording ports, with one ticket `t1`, which ensures the main Session and the ticket's worker. */
+async function ensured() {
+  const { ports, binderOf } = recordingPorts()
+  const settings = { eval: { model: null }, executor: { model: null } }
+  const sessions = new Sessions({ ports, masterId: 'master', lifetime: new AbortController().signal, closing: () => false, environment: () => [],
+    tools: () => [], store: { tickets: { get: (id: string) => id === 't1' ? { id } : undefined }, settings: () => settings, get: () => undefined, set: () => {},
+      keys: () => [] }, prompts: { current: () => ({ revision: 1, config: { skills: {} } }), version: () => ({}), compose: () => '', skills: () => [] },
+    effects: { enqueue: () => {}, handle: () => {}, idle: async () => {}, pending: () => false }, health: { set: () => {} } } as never)
+  await sessions.ensure('master', '/state', 'orchestrator', 'orchestrator')
+  await sessions.ensure('worker-t1', '/work', 'ticket', 'worker')
+  return { router: binderOf('master'), worker: binderOf('worker-t1') }
+}
+
+it('limits the main Session to the skill tool, and the worker to the work tools its profile has', async () => {
+  const { router, worker } = await ensured()
+  expect(router.allowTools.mock.calls).toEqual([[['skill']]])
+  expect(router.guardTools).not.toHaveBeenCalled()
+  expect(worker.allowTools.mock.calls).toEqual([[['read', 'bash']]])
+  expect(worker.guardTools).toHaveBeenCalledOnce()
 })
 
 it('refuses the management API without the token, which only the operator\'s user can read', async () => {
@@ -110,7 +131,10 @@ it('refuses the management API without the token, which only the operator\'s use
 })
 
 // When a change isolates workers, this fails: replace it with a test of the isolation. Until then a worker shares the OS user,
-// so it can read the token and the database, and the prompt is all that stops it following text it reads with gh.
-it('still runs workers with no confinement', () => {
-  expect(readFileSync(new URL('../src/app/sessions.ts', import.meta.url), 'utf8')).toContain("ctx.permissionPresets.set(result.agent.session, 'danger-full-access')")
+// so it can read the token and the database, and the prompt is all that stops it following text it reads with gh. Every Session
+// Sessions ensures, the main Session too, is granted full access; the main Session's safety is its tool limit above.
+it('still runs workers with no confinement', async () => {
+  const { router, worker } = await ensured()
+  expect(worker.grantFullAccess).toHaveBeenCalledOnce()
+  expect(router.grantFullAccess).toHaveBeenCalledOnce()
 })
