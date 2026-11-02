@@ -1,24 +1,10 @@
 /**
- * A worker's background work in DSH: the shell jobs its Session owns (`ctx.jobs`) and its subagents (`ctx.subagents`). They
+ * A worker's background work in the runner: the shell jobs its Session owns (`ctx.jobs`) and its subagents (`ctx.subagents`). They
  * keep the worker busy after its turn ended, and they stop with its Assignment. A profile without either service has none.
  */
-import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { portsOf, type PortSource } from '../runner/dsh/index.ts'
+import type { AgentHandle, AgentRunner, Jobs, Subagents } from '../runner/port.ts'
 
-/** What the Executor uses of DSH's job registry: the jobs a Session can see, their events, a wait for one and a kill. */
-interface Jobs {
-  list(caller: string): readonly { id: string; owner?: string; status: string; label?: string }[]
-  wait(id: string, timeoutMs: number, caller: string, signal?: AbortSignal): Promise<{ status: string }>
-  kill(id: string, caller: string, reason?: string): unknown
-  readonly events: { subscribe(filter: { owner: string }, listener: (event: { type: string }) => void): () => void }
-}
-/** What the Executor uses of DSH's subagents: joining a worker's subagents that work, its subagents, and releasing them. */
-interface Subagents {
-  waitForChildren(parent: Agent): Promise<boolean>
-  listChildren(parentSessionId: string): Promise<readonly { id: string }[]>
-  drainChildren(parent: Agent, childIds: readonly string[]): Promise<void>
-}
 /** How long a stop waits for a killed job to end, collecting its end so the worker is not woken to hear of it. */
 const KILL_WAIT_MS = 10_000
 /** How long a release of subagents may take; it can hold up a shutdown, so DSH's own callers bound it too. */
@@ -26,8 +12,10 @@ const DRAIN_LIMIT_MS = 10_000
 /** How long one wait that collects a job's end runs; one that ends with the job running is followed by the next. */
 const COLLECT_WAIT_MS = 10 * 60_000
 
-const registry = (ctx: Context): Jobs | undefined => ctx.get('jobs') as Jobs | undefined
-const subagentsOf = (ctx: Context): Subagents | undefined => ctx.get('subagents') as Subagents | undefined
+/** Each function below takes the agent-side ports; a DSH context is accepted where the host or a test hands one over. */
+const runnerOf = (source: PortSource): AgentRunner => portsOf(source).runner
+const registry = (source: PortSource): Jobs | undefined => runnerOf(source).jobs()
+const subagentsOf = (source: PortSource): Subagents | undefined => runnerOf(source).subagents()
 const running = (status: string) => status === 'running' || status === 'stopping'
 /** The jobs the Session owns that run, but those in `except`, such as the ones left to a person. */
 const owned = (jobs: Jobs, sessionId: string, except?: ReadonlySet<string>) =>
@@ -43,10 +31,10 @@ export function until<T>(work: Promise<T>, signal?: AbortSignal, ms?: number): P
   return Promise.race([work, stopped]).finally(() => { signal?.removeEventListener('abort', stop); clearTimeout(timer) })
 }
 /** The workers whose turn a stop of their subagents cancelled, whose next idle ends that turn rather than one of their own. */
-export const cancelled = new WeakSet<Agent>()
+export const cancelled = new WeakSet<AgentHandle>()
 /** The pending join of each worker's subagents, which DSH cannot cancel, so a later look joins the same one. */
-const joins = new WeakMap<Agent, Promise<boolean>>()
-function childrenEnd(subagents: Subagents, agent: Agent): Promise<boolean> {
+const joins = new WeakMap<AgentHandle, Promise<boolean>>()
+function childrenEnd(subagents: Subagents, agent: AgentHandle): Promise<boolean> {
   let join = joins.get(agent)
   if (!join) {
     join = subagents.waitForChildren(agent).finally(() => { joins.delete(agent) })
@@ -58,7 +46,7 @@ function childrenEnd(subagents: Subagents, agent: Agent): Promise<boolean> {
 /** A job by its id and the first line of its label. */
 const named = (job: { id: string; label?: string }) => { const line = job.label?.split('\n')[0]?.trim(); return line ? `${job.id} (${line})` : job.id }
 /** The shell jobs the Session owns that still run, but those in `except`, with their names. */
-export const runningJobs = (ctx: Context, sessionId: string, except?: ReadonlySet<string>): { id: string; name: string }[] => {
+export const runningJobs = (ctx: PortSource, sessionId: string, except?: ReadonlySet<string>): { id: string; name: string }[] => {
   const jobs = registry(ctx)
   return jobs ? owned(jobs, sessionId, except).map(job => ({ id: job.id, name: named(job) })) : []
 }
@@ -67,7 +55,7 @@ export const runningJobs = (ctx: Context, sessionId: string, except?: ReadonlySe
  * Wait until no shell job the Session owns runs; false at once when none ran, or when `signal` aborts first. The wait is
  * no waiter on any job, so each job's end still reaches the worker.
  */
-function jobsEnd(ctx: Context, sessionId: string, signal: AbortSignal, except?: ReadonlySet<string>): Promise<boolean> {
+function jobsEnd(ctx: PortSource, sessionId: string, signal: AbortSignal, except?: ReadonlySet<string>): Promise<boolean> {
   const jobs = registry(ctx)
   if (!jobs || !owned(jobs, sessionId, except).length) return Promise.resolve(false)
   return new Promise(resolve => {
@@ -93,7 +81,7 @@ function jobsEnd(ctx: Context, sessionId: string, signal: AbortSignal, except?: 
  * @returns true once all of it ended with the worker idle; false when the worker runs again, or when `signal` aborts first,
  * as when the host stops or the look's time is up.
  */
-export async function untilQuiet(ctx: Context, agent: Agent, signal: AbortSignal, except?: ReadonlySet<string>): Promise<boolean> {
+export async function untilQuiet(ctx: PortSource, agent: AgentHandle, signal: AbortSignal, except?: ReadonlySet<string>): Promise<boolean> {
   for (;;) {
     const subagents = subagentsOf(ctx)
     const children = subagents ? await until(childrenEnd(subagents, agent), signal) : false
@@ -107,7 +95,7 @@ export async function untilQuiet(ctx: Context, agent: Agent, signal: AbortSignal
  * Kill the shell jobs the Session owns, but those in `except`, collecting each end so the worker is not woken to hear of it.
  * One failure stops none other.
  */
-export async function killJobs(ctx: Context, sessionId: string, reason: string, except?: ReadonlySet<string>): Promise<void> {
+export async function killJobs(ctx: PortSource, sessionId: string, reason: string, except?: ReadonlySet<string>): Promise<void> {
   const jobs = registry(ctx)
   const live = jobs ? owned(jobs, sessionId, except) : []
   const failures: unknown[] = []
@@ -122,7 +110,7 @@ export async function killJobs(ctx: Context, sessionId: string, reason: string, 
  * Collect the end of a shell job the Session owns, so it wakes no one, until `signal` aborts.
  * @returns the job's name and status once it ended; undefined when `signal` aborted first.
  */
-export async function collectJob(ctx: Context, sessionId: string, job: { id: string; name: string }, signal: AbortSignal):
+export async function collectJob(ctx: PortSource, sessionId: string, job: { id: string; name: string }, signal: AbortSignal):
   Promise<{ name: string; status: string } | undefined> {
   const jobs = registry(ctx)
   while (jobs && !signal.aborted) {
@@ -138,16 +126,16 @@ export async function collectJob(ctx: Context, sessionId: string, job: { id: str
  * returns, which wakes it, so the worker's turn is cancelled after, keeping its inbox when `keepInbox`, and the stop ends
  * with that turn. Its Session still admits subagents.
  */
-export async function stopSubagents(ctx: Context, agent: Agent, keepInbox = false): Promise<void> {
+export async function stopSubagents(ctx: PortSource, agent: AgentHandle, keepInbox = false): Promise<void> {
   const subagents = subagentsOf(ctx)
   if (!subagents) return
   // The catalog lists every subagent the Session had; one that ended has no agent.
-  const live = (await subagents.listChildren(agent.id)).map(child => child.id).filter(id => ctx.agents.get(id as SessionId))
+  const live = (await subagents.listChildren(agent.id)).map(child => child.id).filter(id => runnerOf(ctx).get(id))
   if (!live.length) return
   try { await until(subagents.drainChildren(agent, live), undefined, DRAIN_LIMIT_MS) }
   finally {
     if (agent.status !== 'idle') cancelled.add(agent)
-    agent.cancel({ kind: 'user' }, { keepInbox })
+    runnerOf(ctx).cancel(agent, { keepInbox })
     await until(agent.whenIdle(), undefined, DRAIN_LIMIT_MS)
   }
 }
@@ -156,10 +144,10 @@ export async function stopSubagents(ctx: Context, agent: Agent, keepInbox = fals
  * Stop what a worker runs in the background once its Assignment ends: kill its shell jobs and release its subagents (see
  * `stopSubagents`). A Session not loaded has no subagent at work. One failure stops nothing else.
  */
-export async function stopBackground(ctx: Context, sessionId: string, reason: string, keepInbox = false): Promise<void> {
+export async function stopBackground(ctx: PortSource, sessionId: string, reason: string, keepInbox = false): Promise<void> {
   const failures: unknown[] = []
   await killJobs(ctx, sessionId, reason).catch((error: unknown) => { failures.push(error) })
-  const agent = ctx.agents.get(sessionId as SessionId)
+  const agent = runnerOf(ctx).get(sessionId)
   if (agent) await stopSubagents(ctx, agent, keepInbox).catch((error: unknown) => { failures.push(error) })
   if (failures.length) throw new AggregateError(failures, `Stopping the background work of ${sessionId} failed`)
 }

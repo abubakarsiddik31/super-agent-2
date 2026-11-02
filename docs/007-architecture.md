@@ -353,7 +353,12 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/views/settings.ts` | The settings page's view: each block with its revision, each Source's settings with its kind's form, and the execution environment |
 | `src/app/views/overview.ts` | The overview: Tickets that need a person, problems, the last day's flow and the Executor's load |
 | `src/executor/dsh.ts` | The DshExecutor, `WorkerSlots`, `ticketExecution`, `inputMessage` and `mandateInstructions` |
-| `src/executor/background.ts` | A worker's background work in DeepSeek Harness, the shell jobs its Session owns (`ctx.jobs`) and its subagents (`ctx.subagents`): `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
+| `src/runner/port.ts` | The ports the engine depends on instead of the host and the agent runner: `AgentRunner` and `AgentHandle` with their events, `Binder` (prompt sections, tools, skills, tool limits, full access), `HostPort`, `Subprocess`, `TranscriptStore` and `ModelInfo`; `definePorts` marks a bundle of them |
+| `src/runner/dsh/runner.ts` | `DshRunner`, the `AgentRunner` over DeepSeek Harness whose handles are DSH's own agents, and its `Binder`; the worker and router presets |
+| `src/runner/dsh/ports.ts` | The `TranscriptStore`, `ModelInfo` and `Subprocess` over a DSH context, `dshPorts` and `portsOf`, which accepts a DSH context where a host or a test hands one over |
+| `src/runner/dsh/host.ts` | The `HostPort` over the DSH plugin context: its logger, effects, Web server and restart, and the setting that has DSH generate no settings page |
+| `src/runner/dsh/index.ts` | What the DSH implementation exports |
+| `src/executor/background.ts` | A worker's background work through the runner, the shell jobs its Session owns and its subagents: `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
 | `src/infra/commands.ts` | `Commands`, the CLI transport: `run`; `api` and `pages`, limited to the configured repository and validated; `lark` as the bot; `git`. `CliError` carries the code a command's output reports, such as a GitHub HTTP status, and a command that prints nothing fails with how it ended, never with its arguments; `validItems` skips and counts the malformed items of a list |
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
 | `src/infra/paths.ts` | The package's root, where packaged files are |

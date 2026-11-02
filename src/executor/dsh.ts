@@ -1,7 +1,5 @@
 /** DSH executor: manages one persistent worker session and workspace directory per ticket. */
-import type { Context } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { lastAssistantText, type AgentHandle, type AgentPorts } from '../runner/port.ts'
 import { mkdir, rmdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { key, latestAssignment, latestReport, liveTicket, runningAssignment, threadKey, waitsForPerson } from '../core/index.ts'
@@ -57,8 +55,8 @@ export function transient(error: unknown): boolean {
 const ticketWorktreeName = (name: string, id: string): string => `${WorktreeNameSchema.parse(name)}-${id.slice(0, 12)}`
 /** Host dependencies used by `DshExecutor`. */
 export interface ExecutorHost {
-  /** DSH Cordis context: agents and their events, and the subprocess service used to run prepare commands. */
-  readonly context: Context
+  /** The agent side: agents and their events, and the subprocess service used to run prepare commands. */
+  readonly ports: AgentPorts
   /** Where the Executor reports what happened to Assignments and Inputs. */
   readonly engine: Pick<EngineForExecutor, 'assignmentStarted' | 'inputsDelivered' | 'inputsRead' | 'turnEnded' | 'deliveryFailed' | 'report'
     | 'assignmentInterrupted'>
@@ -251,14 +249,14 @@ export class DshExecutor implements Executor {
     const env = Object.fromEntries(this.host.environment(ticket).map(variable => [variable.key, variable.value]))
     // Enforce a timeout so a hung prepare command (such as on a credential prompt) fails the ticket instead of holding a worker slot indefinitely.
     const signal = AbortSignal.any([this.host.lifetime, AbortSignal.timeout(PREPARE_TIMEOUT_MS)])
-    if (command) await runAsWorker(this.host.context.subprocess, ['sh', '-c', command], dirname(directory), signal, env)
+    if (command) await runAsWorker(this.host.ports.subprocess, ['sh', '-c', command], dirname(directory), signal, env)
       .catch(async (error: unknown) => {
         // Remove an empty directory left by a failed prepare command so a later retry does not treat it as already prepared.
         await rmdir(directory).catch(() => { /* Absent, or holding what the command wrote, which the output explains. */ })
         throw new PrepareFailed(`The prepare command failed: ${error instanceof Error ? error.message : String(error)}`)
       })
     await mkdir(directory, { recursive: true })
-    await verifyDirectory(directory, this.host.context.subprocess, this.host.lifetime)
+    await verifyDirectory(directory, this.host.ports.subprocess, this.host.lifetime)
   }
   /** Enqueues a `launch` effect for an accepted or resumed assignment; launches start in queue order as worker slots free up. */
   start(ticket: Ticket, assignment: Assignment): void {
@@ -311,7 +309,7 @@ export class DshExecutor implements Executor {
         const input = ticket.inputs.find(item => item.id === inputId)
         try {
           // Recreate the worker session if it was externally deleted.
-          if (!this.host.context.agents.get(sessionId as SessionId)) {
+          if (!this.host.ports.runner.get(sessionId)) {
             await this.host.sessions.ensure(sessionId, ticket.execution?.directory ?? '', ticket.title, 'worker')
           }
           if (input) await this.deliverInput(ticket, assignment, input)
@@ -362,7 +360,8 @@ export class DshExecutor implements Executor {
     const sessionId = workerSessionId(ticket.id)
     this.host.store.afterCommit(() => {
       this.settling.get(ticket.id)?.abort()
-      if (!ownTurn) this.host.context.agents.get(sessionId as SessionId)?.cancel({ kind: 'user' }, { keepInbox: false })
+      const live = this.host.ports.runner.get(sessionId)
+      if (!ownTurn && live) this.host.ports.runner.cancel(live, { keepInbox: false })
       // Its shell jobs and subagents stop with it, also those of a worker that ends its own turn.
       this.stopWork(ticket.id, reason)
       this.left.get(ticket.id)?.collect.abort(); this.left.delete(ticket.id); this.personal.delete(ticket.id)
@@ -370,7 +369,7 @@ export class DshExecutor implements Executor {
   }
   /** Stop what a ticket's worker runs in the background (see `stopBackground`). */
   private stopWork(ticketId: string, reason: string, keepInbox = false): void {
-    this.track(ticketId, stopBackground(this.host.context, workerSessionId(ticketId), reason, keepInbox))
+    this.track(ticketId, stopBackground(this.host.ports, workerSessionId(ticketId), reason, keepInbox))
   }
   /** A stop of a ticket's background work, which a launch or a delivery of the ticket waits for while it runs. */
   private track(ticketId: string, stop: Promise<void>): void {
@@ -389,13 +388,13 @@ export class DshExecutor implements Executor {
    * of the jobs left to a person, which were killed, and cancel a worker turn that started meanwhile, keeping its inbox.
    */
   async shutdown(): Promise<void> {
-    const agents = this.host.store.tickets.list().map(ticket => this.host.context.agents.get(workerSessionId(ticket.id) as SessionId))
-      .filter((agent): agent is Agent => agent !== undefined)
+    const agents = this.host.store.tickets.list().map(ticket => this.host.ports.runner.get(workerSessionId(ticket.id)))
+      .filter((agent): agent is AgentHandle => agent !== undefined)
     const stop = async () => {
-      await Promise.allSettled(agents.map(agent => stopBackground(this.host.context, agent.id, 'dsh-superagent stopped', true)))
+      await Promise.allSettled(agents.map(agent => stopBackground(this.host.ports, agent.id, 'dsh-superagent stopped', true)))
       for (const { collect } of this.left.values()) collect.abort()
       const running = agents.filter(agent => agent.status !== 'idle')
-      for (const agent of running) agent.cancel({ kind: 'user' }, { keepInbox: true })
+      for (const agent of running) this.host.ports.runner.cancel(agent, { keepInbox: true })
       await Promise.allSettled(running.map(agent => agent.whenIdle()))
     }
     await until(stop(), undefined, SHUTDOWN_STOP_MS)
@@ -405,7 +404,7 @@ export class DshExecutor implements Executor {
   /** Whether a ticket's worker holds a worker slot: its turn runs, or its shell jobs or subagents do after its turn ended. */
   private running(ticket: Ticket): boolean {
     if (!runningAssignment(ticket)) return false
-    return this.host.context.agents.get(workerSessionId(ticket.id) as SessionId)?.status === 'running' || this.settling.has(ticket.id)
+    return this.host.ports.runner.get(workerSessionId(ticket.id))?.status === 'running' || this.settling.has(ticket.id)
   }
   /** Marks a ticket failed after its launch fails; the ticket waits until new human input or an explicit retry arrives. */
   private launchFailed(ticketId: string, assignmentId: string, error: unknown): void {
@@ -469,14 +468,14 @@ export class DshExecutor implements Executor {
     this.host.engine.assignmentStarted(ticket.id, assignment.id)
   }
   /** Returns the stored ticket for `agent` when it is a worker session, or undefined otherwise. */
-  private ticketOf(agent: Agent): Ticket | undefined {
+  private ticketOf(agent: AgentHandle): Ticket | undefined {
     const ticketId = ticketOfSession(agent.id)
     return ticketId === undefined ? undefined : this.host.store.tickets.get(ticketId)
   }
   /** Subscribes to host `agent/status`, `agent/inbox/claimed`, `session/event` and `agent/error` events for worker sessions. Call once at startup. */
   install(): void {
-    const ctx = this.host.context
-    this.disposers.push(ctx.on('agent/status', ({ agent, status }) => {
+    const { runner } = this.host.ports
+    this.disposers.push(runner.status((agent, status) => {
       // A turn that starts ends the look at its worker's background work; the turn's own idle looks afresh.
       if (status === 'running') { this.settling.get(ticketOfSession(agent.id) ?? '')?.abort(); return }
       // The turn a stop of the worker's subagents woke and cancelled is no turn of the worker's.
@@ -486,23 +485,22 @@ export class DshExecutor implements Executor {
       if (ticket && assignment && liveTicket(ticket)) void this.background(this.workerIdle(ticket, assignment, agent))
     }))
     // A person's message typed into a worker's Session, which the ticket does not record.
-    this.disposers.push(ctx.on('agent/inbox/claimed', ({ agent, message }) => {
+    this.disposers.push(runner.inboxClaimed((agent, message) => {
       const ticketId = ticketOfSession(agent.id)
       if (ticketId !== undefined && message.source.kind === 'user') this.personal.set(ticketId, now())
     }))
     // The Inputs a message of dsh-superagent's carries, which its worker reads once the Session took the message into its
     // history: a step that claimed it may be cancelled or fail before, which drops it.
-    this.disposers.push(ctx.on('session/event', (session, event) => {
+    this.disposers.push(runner.userMessage((session, message) => {
       const ticketId = ticketOfSession(session.id)
-      if (event.type !== 'user/message' || ticketId === undefined || event.data.source.kind !== 'dsh-superagent' || this.host.closing()) return
-      const message = event.data
+      if (ticketId === undefined || message.source.kind !== 'dsh-superagent' || this.host.closing()) return
       void this.background(Promise.resolve().then(() => {
         const read = this.host.store.tickets.get(ticketId)?.inputs.filter(input => input.kind === 'trigger' && !input.readAt
           && this.host.sessions.promptedId(input.id) === message.id).map(input => input.id) ?? []
         if (read.length) this.host.engine.inputsRead(ticketId, read)
       }))
     }))
-    this.disposers.push(ctx.on('agent/error', ({ agent, error }) => {
+    this.disposers.push(runner.error((agent, error) => {
       const ticket = this.ticketOf(agent)
       const assignment = ticket && runningAssignment(ticket)
       if (!ticket || !assignment || !liveTicket(ticket) || this.host.closing()) return
@@ -528,7 +526,8 @@ export class DshExecutor implements Executor {
       if (running) {
         // A restart within this process left DSH's Sessions, jobs and subagents running: they stop first. The inbox keeps an
         // Input that was handed over but not yet taken.
-        this.host.context.agents.get(workerSessionId(ticket.id) as SessionId)?.cancel({ kind: 'user' }, { keepInbox: true })
+        const live = this.host.ports.runner.get(workerSessionId(ticket.id))
+        if (live) this.host.ports.runner.cancel(live, { keepInbox: true })
         this.stopWork(ticket.id, 'dsh-superagent restarted', true)
         this.host.engine.assignmentInterrupted(ticket.id, running.id)
       }
@@ -585,20 +584,20 @@ export class DshExecutor implements Executor {
    * person, are left to the person until the Assignment ends. They hold no slot and run past any limit; their ends are
    * collected, so none wakes the worker outside a slot, and the worker reads of each at its next turn.
    */
-  private handOff(ticketId: string, agent: Agent): void {
-    this.track(ticketId, stopSubagents(this.host.context, agent, true))
+  private handOff(ticketId: string, agent: AgentHandle): void {
+    this.track(ticketId, stopSubagents(this.host.ports, agent, true))
     const left = this.left.get(ticketId) ?? { jobs: new Set<string>(), collect: new AbortController() }
     this.left.set(ticketId, left)
-    for (const job of runningJobs(this.host.context, agent.id, left.jobs)) {
+    for (const job of runningJobs(this.host.ports, agent.id, left.jobs)) {
       left.jobs.add(job.id)
-      void this.background(collectJob(this.host.context, agent.id, job, left.collect.signal).then(async ended => {
+      void this.background(collectJob(this.host.ports, agent.id, job, left.collect.signal).then(async ended => {
         if (!ended) return
         const note = `Your background job ${ended.name} ended: ${ended.status}.`
         await this.host.sessions.prompt(agent.id, `ended:${job.id}`, note, { inject: 'Background job ended' })
       }))
     }
   }
-  private async workerIdle(ticket: Ticket, idle: Assignment, agent: Agent): Promise<void> {
+  private async workerIdle(ticket: Ticket, idle: Assignment, agent: AgentHandle): Promise<void> {
     await agent.whenIdle()
     // A turn that failed for a passing reason goes on after its backoff, which is no end of the turn.
     if (this.resuming.has(idle.id) || agent.status !== 'idle') return
@@ -635,7 +634,7 @@ export class DshExecutor implements Executor {
     timer.unref?.()
     let quiet: boolean
     const left = this.left.get(ticket.id)?.jobs
-    try { quiet = await untilQuiet(this.host.context, agent, AbortSignal.any([this.host.lifetime, look.signal, limit.signal]), left) }
+    try { quiet = await untilQuiet(this.host.ports, agent, AbortSignal.any([this.host.lifetime, look.signal, limit.signal]), left) }
     finally { clearTimeout(timer); if (this.settling.get(ticket.id) === look) this.settling.delete(ticket.id) }
     const current = live()
     if (this.host.closing() || look.signal.aborted || (!quiet && !limit.signal.aborted) || !current || this.resuming.has(idle.id)) return
@@ -645,9 +644,9 @@ export class DshExecutor implements Executor {
       // Its shell jobs that ran past the limit are killed, which it is told at its next turn; its subagents, whose stop would
       // wake it, go on.
       const sessionId = workerSessionId(ticket.id), minutes = BACKGROUND_LIMIT_MS / 60_000
-      const jobs = runningJobs(this.host.context, sessionId, left).map(job => job.name)
+      const jobs = runningJobs(this.host.ports, sessionId, left).map(job => job.name)
       if (jobs.length) {
-        void this.background(killJobs(this.host.context, sessionId, 'The job ran past its limit', left))
+        void this.background(killJobs(this.host.ports, sessionId, 'The job ran past its limit', left))
         const note = `Your background jobs ran ${minutes} minutes after your turn ended and were killed: ${jobs.join(', ')}.`
         void this.background(this.host.sessions.prompt(sessionId, `killed:${jobs.join(',')}`, note, { inject: 'Background jobs killed' }))
       }
@@ -656,9 +655,7 @@ export class DshExecutor implements Executor {
     }
     // The worker may have reported while its turn ended; a blocked or failed report a person's message has lifted is stale.
     if (handedOff(current)) return
-    const last = agent.session.snapshotEvents().filter(event => event.type === 'assistant/message').at(-1)
-    const text = last?.type === 'assistant/message'
-      ? last.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('\n').trim() : ''
+    const text = lastAssistantText(agent)
     const said = [text, stopped].filter(Boolean).join('\n\n')
     this.host.store.atomic(() => {
       const before = latestReport(current)?.summary ?? ''

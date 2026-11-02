@@ -1,12 +1,10 @@
 /** Loopback-only management HTTP routes with same-origin enforcement for the web panel. */
 import { bearerMatches } from './panel-token.ts'
-import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import { THREAD_FILTERS, TICKET_FILTERS, type Api, type ApiResponse, type RouteParams } from './api.ts'
 import { sourceSkills } from './context.ts'
-import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { HostPort, HttpHandler, ModelCatalog } from '../runner/port.ts'
 import { PromptConflict, SKILL_NAME, SKILL_PREFIX, TEAM_SECTIONS, builtInBase, builtInParts, defaultPrompts, savePrompts, type Prompts }
   from './prompts.ts'
 import { policyVersion } from '../policy.ts'
@@ -229,14 +227,19 @@ function match(table: Routes, method: string, segments: string[]) {
   }
   return undefined
 }
-export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
-  if (ctx.webServer.host !== '127.0.0.1') throw new Error('Orchestrator management requires a loopback Web server')
+/** A host's Web server in the shape DSH's context has it, which `registerHttp` also accepts in place of a `HostPort`'s `http`. */
+interface WebServerHost { readonly webServer: { readonly host: string; readonly port: number
+  register(route: { kind: 'prefix'; path: string; handler: HttpHandler }): () => void } }
+export function registerHttp(source: HostPort['http'] | WebServerHost, runtime: HttpHost): () => void {
+  const http = 'webServer' in source ? { host: source.webServer.host, port: source.webServer.port,
+    mount: (path: string, handler: HttpHandler) => source.webServer.register({ kind: 'prefix', path, handler }) } : source
+  if (http.host !== '127.0.0.1') throw new Error('Orchestrator management requires a loopback Web server')
   const table = routes(runtime)
   const disposers = [
-    ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
+    http.mount('/orchestrator', async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
-      if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
+      if (!sameOrigin(req, http.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
       // `GET state` stays open for the service script's health check, which cannot know the state directory; it changes nothing.
       const health = req.method === 'GET' && url.pathname === '/orchestrator/api/state'
       if (!health && !bearerMatches(req.headers.authorization, runtime.panelToken)) { json(res, 401, { error: 'Panel token required', token: true }); return }
@@ -247,6 +250,6 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
         const query = Object.fromEntries(url.searchParams)
         json(res, 200, await route.run({ params: route.params as never, query, body: maxBytes => readBody(req, maxBytes) }))
       } catch (error) { json(res, ...failure(error)) }
-    } })]
+    })]
   return () => { for (const dispose of disposers) dispose() }
 }
