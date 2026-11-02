@@ -208,8 +208,6 @@ export interface HostPort {
   /** Limits that change in place without a restart. */
   readonly limits: { readonly promptMaxChars: Volatile<number>; readonly admissionContextMaxPages: Volatile<number>
     readonly admissionContextTimeoutMs: Volatile<number> }
-  /** Runs `stop` when the host stops the engine. */
-  onStop(stop: () => void | Promise<void>): void
   /** Rebuilds the engine, as after an account change. */
   restart(): void
   readonly http: {

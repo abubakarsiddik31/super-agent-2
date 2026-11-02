@@ -30,7 +30,6 @@ export function dshHost(ctx: Context, machine: Machine, restart: () => void = ds
     logger: dshLogger(ctx),
     stateDir: machine.stateDir,
     limits: machine,
-    onStop: stop => { ctx.effect(() => async () => { await stop() }) },
     restart,
     http: {
       get host() { return ctx.webServer.host },

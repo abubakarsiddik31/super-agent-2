@@ -6,7 +6,7 @@ import { feishuLink, sendFeishu } from './feishu-channel.ts'
 import { feishuThreadContext } from './feishu-read.ts'
 import { refreshChatNames, runFeishu } from './feishu-loops.ts'
 import { SOURCE, feishuTriggerId } from './feishu-trigger.ts'
-import { sourceContext } from './host.ts'
+import { sourceContext, type SourceHost } from './host.ts'
 import type { Localized, SourceKind } from './kind.ts'
 import type { SourceRegistry } from './registry.ts'
 
@@ -129,11 +129,19 @@ export const feishuSettings = (sources: SourceRegistry): FeishuConfig => sources
 
 export const name = 'dsh-superagent-feishu'
 export const inject = ['orchestrator']
+/**
+ * Registers the Feishu Source and starts its polling, returning the disposer that stops it.
+ *
+ * The host decides how this runs: the harness plugin stops it with the plugin's fiber, and the plain Node host stops it
+ * when the process shuts down.
+ */
+export function startFeishu(host: SourceHost): () => Promise<void> {
+  host.sources.register(feishuKind)
+  const source = sourceContext(host, feishuKind)
+  const controller = new AbortController()
+  const running = runFeishu(source, controller.signal)
+  return async () => { controller.abort(); await running }
+}
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.orchestrator.sources.register(feishuKind), 'feishu: source kind')
-  ctx.effect(() => {
-    const controller = new AbortController()
-    const running = runFeishu(sourceContext(ctx.orchestrator, feishuKind), controller.signal)
-    return async () => { controller.abort(); await running }
-  })
+  ctx.effect(() => startFeishu(ctx.orchestrator), 'feishu: source kind')
 }

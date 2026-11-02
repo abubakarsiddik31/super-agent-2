@@ -3,11 +3,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import { definePorts, isPorts, type AgentPorts, type Logger, type ModelInfo, type RunnerMessage, type Subprocess, type TranscriptStore } from '../port.ts'
+import { definePorts, type AgentPorts, type Logger, type ModelInfo, type RunnerMessage, type Subprocess, type TranscriptStore } from '../port.ts'
 import { DshRunner } from './runner.ts'
-
-/** What `portsOf` accepts: the ports themselves, or the DSH context they are built from. */
-export type PortSource = AgentPorts | Context
 
 export const dshLogger = (ctx: Context): Logger => ({
   info: (format, ...args) => { ctx.logger.info(format, ...args) },
@@ -53,8 +50,3 @@ export function dshPorts(ctx: Context): AgentPorts {
   }
   return ports
 }
-/**
- * The ports of `source`. A DSH context is accepted wherever the host hands one over (the plugin entry, and code that tests
- * drive with a context of their own), so those entry points stay as they were while the code behind them uses ports.
- */
-export const portsOf = (source: PortSource): AgentPorts => isPorts(source) ? source : dshPorts(source)

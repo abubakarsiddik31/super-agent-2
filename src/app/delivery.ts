@@ -1,6 +1,5 @@
 /** Idempotent message delivery to agents across Session restarts. */
-import { portsOf, type PortSource } from '../runner/dsh/index.ts'
-import type { AgentHandle, AgentRunner, RunnerMessage, SessionRef, TranscriptStore } from '../runner/port.ts'
+import type { AgentHandle, AgentPorts, AgentRunner, RunnerMessage, SessionRef, TranscriptStore } from '../runner/port.ts'
 
 type Seen = { ids: Set<string>; loaded?: Promise<void> }
 /** The id of the message delivered under `requestId`, the same on every retry. */
@@ -23,9 +22,9 @@ export class AgentDelivery {
   private readonly seen = new WeakMap<SessionRef, Seen>()
   private readonly runner: AgentRunner
   private readonly transcripts: TranscriptStore
-  /** @param source - the agent-side ports; a DSH context is accepted for hosts and tests that hand one over. */
-  constructor(source: PortSource) {
-    const { runner, transcripts } = portsOf(source)
+  /** @param source - the agent-side ports. */
+  constructor(source: AgentPorts) {
+    const { runner, transcripts } = source
     this.runner = runner; this.transcripts = transcripts
     runner.userMessage((session, message) => {
       const id = deliveryId(message)

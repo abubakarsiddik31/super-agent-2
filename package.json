@@ -49,6 +49,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",
+    "start": "node scripts/superagent.mjs",
     "ui:dev": "vite --config desktop/vite.config.ts",
     "ui:build": "vite build --config desktop/vite.config.ts"
   },
