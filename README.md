@@ -2,15 +2,15 @@
 
 # Super-agent 2.0
 
-**The Super-agent architecture, rebuilt to withstand prompt injection.**
+**An always-on coding agent for GitHub and chat. Bring any coding-agent CLI. Runs on your machine.**
 
-An always-on coding agent that listens to GitHub and chat, works on many tasks at once, and has to stay safe while reading text from strangers. Today it runs inside DeepSeek Harness; we are building it into a standalone product that runs on your own machine with the coding-agent CLI you already use.
+Super-agent listens to GitHub and chat, turns requests from people you authorize into tickets, and runs each one in its own workspace with the agent CLI you choose: Claude Code, Codex, Gemini CLI, OpenCode, or any other. It is built to stay safe while reading text from strangers, even if the model is fooled.
+
+> **Today it only works inside the DeepSeek Harness UI.** Making it standalone, with no DeepSeek software and any CLI you like, is the main thing we're building. See the [roadmap](#roadmap).
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: early](https://img.shields.io/badge/status-early%20%C2%B7%20not%20production%20ready-orange.svg)](#project-status)
-[![Issues open](https://img.shields.io/badge/backlog-54%20open%20items-lightgrey.svg)](ISSUES.md)
 
-[Why this exists](#why-this-exists) · [Standalone](#toward-a-standalone-product) · [Status](#project-status) · [Fixed so far](#fixed-so-far) · [Still open](#still-open-and-how-were-fixing-it) · [Contribute](#contributing)
+[Updates](#updates) · [Any CLI](#standalone-with-any-cli) · [Roadmap](#roadmap) · [Why this exists](#why-this-exists) · [Status](#project-status) · [Fixed so far](#fixed-so-far) · [Still open](#still-open-and-how-were-fixing-it) · [Contribute](#contributing)
 
 </div>
 
@@ -19,6 +19,59 @@ An always-on coding agent that listens to GitHub and chat, works on many tasks a
 
 > [!WARNING]
 > **Don't run this on a repository or machine you care about yet.** Workers still run unconfined as your OS user ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)). We have blocked several paths at the host, but this is not secure until the P0 items below are closed.
+
+## Updates
+
+**2 November 2026**
+
+- **Ports in place.** The agent runner, host and model services now sit behind interfaces in `src/runner/port.ts`. DeepSeek Harness is the only implementation so far, and nothing about how it behaves changed. This is the seam that lets other runtimes plug in.
+- **A standalone panel.** The management UI in `desktop/` runs on its own, without the DeepSeek sidebar. It needs a running service for its data. Start it with `pnpm ui:dev`.
+- **Checked the agent CLIs.** We tried Claude Code, Codex, Gemini CLI and OpenCode for headless runs, session resume and removing built-in tools. Claude Code can run with no built-in tools, so it's the first CLI allowed to read strangers' text. For the other three, resume looks possible, but the tool-removal and tool-server setup still need testing.
+- **Checked the desktop webview.** The Tauri webview reaches the management API only if the API allows one extra origin, `tauri://localhost`. We'll add that as an option the desktop app turns on.
+- **Test with one account.** A new off-by-default `receiveOwnIssues` switch lets the agent receive Issues from its own GitHub account, so you can try it without a second account. Its own comments and pull requests are still ignored.
+- **Tests.** 1,201 pass.
+
+Earlier: five weaknesses in the attack path were fixed at the host (see [fixed so far](#fixed-so-far)).
+
+## Standalone, with any CLI
+
+The original only works as a plugin inside DeepSeek Harness (DSH). DSH loads it, shows its panel in the DSH sidebar, runs its agent sessions and work tools, and signs in to a DeepSeek model. We're changing that:
+
+- **No DeepSeek software needed.** A plain Node host and our own panel, then a desktop app (Tauri, macOS first).
+- **Any CLI, per role.** You pick which coding-agent CLI does each job. We don't ship a model or an agent loop.
+- **Local first.** It runs on your machine against your repositories. Nothing is hosted.
+- **The same safety rules.** The host enforces the limits, whichever CLI is behind them.
+
+```mermaid
+flowchart LR
+    A[GitHub or chat] --> B[Host: policy, tickets, outbox]
+    B --> C[Runner]
+    C --> D[Your CLI in a workspace per ticket]
+    D -. ticket tools over a local tool server .-> B
+```
+
+| CLI | As a worker | As the router |
+|---|---|---|
+| Claude Code | First adapter to build | Can run with no built-in tools (checked) |
+| Codex | Planned | Not verified yet |
+| Gemini CLI | Planned | Not verified yet |
+| OpenCode | Planned | Not verified yet |
+| Any other CLI | Through a command template | Only if the host can verify it has no built-in tools |
+
+None of these adapters is written yet. The table is the plan, plus what we checked.
+
+The router reads text from strangers, so it's the role to protect. The host refuses a CLI there unless it can confirm the CLI runs with only our routing tools and no shell or file access. A CLI that can't prove that can still be a worker.
+
+## Roadmap
+
+| Step | State |
+|---|---|
+| Ports between the engine and DSH | Done |
+| Standalone panel UI | Done; needs a running service |
+| Plain Node host that replaces DSH | Next |
+| CLI runners: Claude Code first, then Codex, Gemini CLI, OpenCode and a command template | Next |
+| Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Planned |
+| Tauri desktop app with a setup wizard | Later |
 
 ## Why this exists
 
@@ -38,26 +91,6 @@ Prompts can ask a model to behave, but only the host can enforce it. We hold our
 2. **Error handling: failures are typed, bounded and visible.** Nothing retries forever or fails silently.
 3. **Communication: anyone authorized who asks gets an answer.** Accepted, declined or failed comes from the host, not from a model choosing to mention it.
 
-## Toward a standalone product
-
-The original only works as a plugin inside DeepSeek Harness (DSH): DSH loads it, serves its panel, runs its agent sessions and work tools, and signs in to a DeepSeek model. We want it to stand on its own:
-
-- **A desktop app.** A Tauri app for macOS first, with its own UI, no DSH needed. Other platforms come later.
-- **Your agent, your model.** Each role picks its own coding-agent CLI: Claude Code, Codex, Gemini CLI, OpenCode, or any other through a command template. We don't ship a model or an agent loop.
-- **Local first.** It runs on your machine against your repositories. Nothing is hosted.
-- **The same safety rules.** A CLI may act as the router, which reads strangers' text, only if the host can verify it runs with no built-in shell or file tools. Otherwise the host refuses it.
-
-| Piece | State |
-|---|---|
-| Standalone panel UI (`desktop/`), reusing the existing pages with no DSH shell | Works against a running service |
-| Ports between the engine and DSH (agent runner, host, models) | Done, with DSH as the only implementation |
-| Plain Node host that replaces DSH | Next |
-| Agent CLI runners and a per-ticket tool server | Next |
-| Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Planned |
-| Tauri desktop shell, setup wizard, signed build | Later |
-
-Only Claude Code is verified so far for running with no built-in tools. The others can run workers once their tool-server setup is checked, but they aren't allowed as the router yet.
-
 ## Project status
 
 | | |
@@ -65,7 +98,7 @@ Only Claude Code is verified so far for running with no built-in tools. The othe
 | **Fixed at the host** | 5 weaknesses in the attack path, covered by [tests](tests/attack-chain.spec.ts) |
 | **Open** | [54 items](ISSUES.md): 5 P0, 19 P1, 18 P2, 12 P3 |
 | **Tested with** | The real gate, tools and HTTP routes on a fake harness with no model |
-| **Standalone** | The panel UI runs on its own. The host, agent CLI runners and desktop app are not built yet ([plan](#toward-a-standalone-product)) |
+| **Standalone** | The panel UI runs on its own. The host, agent CLI runners and desktop app are not built yet ([roadmap](#roadmap)) |
 | **Not yet tested** | The real harness, or any real model following an injected comment ([SEC-04](ISSUES.md#sec-04-prove-or-disprove-the-attack-end-to-end)) |
 
 We haven't shown this attack working end to end. The tests prove what the host allows or refuses, not how a model behaves. We will publish results per model once the red-team run exists.
