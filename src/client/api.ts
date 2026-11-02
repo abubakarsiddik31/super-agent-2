@@ -31,6 +31,18 @@ const isUserError = (code: unknown): code is UserErrorCode => typeof code === 's
 
 const TOKEN_KEY = 'dsh-superagent-panel-token'
 const storedToken = (): string | null => { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
+/** How the client reaches the API; a standalone host replaces the transport and where the token comes from. */
+export interface ApiHost {
+  fetch: typeof fetch
+  /** The URL prefix of the management API, ending in a slash. */
+  base: string
+  token: () => string | null | Promise<string | null>
+  /** Obtains a token after a 401; returns whether one is now available. Defaults to asking in a browser prompt. */
+  askToken?: (messages: ApiMessages) => boolean | Promise<boolean>
+}
+let host: ApiHost = { fetch: (input, init) => globalThis.fetch(input, init), base: '/orchestrator/api/', token: storedToken }
+/** Replaces parts of how the client reaches the API, such as the fetch of a desktop shell. */
+export const configureApi = (next: Partial<ApiHost>): void => { host = { ...host, ...next } }
 /** Asks the operator once for the panel token and keeps it in this browser; returns whether one was given. */
 function askToken(messages: ApiMessages): boolean {
   const token = window.prompt(messages.panelToken)?.trim()
@@ -42,13 +54,13 @@ function askToken(messages: ApiMessages): boolean {
 async function api<T>(messages: ApiMessages, path: string, method: string, body?: unknown, asked = false): Promise<T> {
   let response: Response
   const json = body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
-  const token = storedToken()
+  const token = await host.token()
   try {
-    response = await fetch(`/orchestrator/api/${path}`, { method, ...json, headers: { 'x-orchestrator-request': '1', ...token ? { authorization: `Bearer ${token}` } : {}, ...json.headers } })
+    response = await host.fetch(`${host.base}${path}`, { method, ...json, headers: { 'x-orchestrator-request': '1', ...token ? { authorization: `Bearer ${token}` } : {}, ...json.headers } })
   } catch {
     throw new ApiError(messages.offline, 0, { unreachable: true })
   }
-  if (response.status === 401 && !asked && askToken(messages)) return await api<T>(messages, path, method, body, true)
+  if (response.status === 401 && !asked && await (host.askToken ?? askToken)(messages)) return await api<T>(messages, path, method, body, true)
   const text = await response.text()
   let value: unknown
   try { value = text ? JSON.parse(text) : {} } catch { value = undefined }

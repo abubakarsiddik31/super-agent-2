@@ -3,3 +3,9 @@ lib/
 .artifacts/
 .env
 coverage/
+
+# Standalone panel build output
+desktop/dist
+
+# Notes from the standalone spikes
+docs/spikes/

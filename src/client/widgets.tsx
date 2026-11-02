@@ -90,7 +90,8 @@ export function ConfirmButton({ label, title, message, onConfirm, variant = 'gho
 }
 export function SessionButton({ sessionId, label,
   variant = 'ghost' }: { sessionId: string; label?: string; variant?: 'ghost' | 'outline' }) {
-  const { t, openSession, notify } = usePanel()
+  const { t, openSession, sessionLinks, notify } = usePanel()
+  if (!sessionLinks) return null
   return <Button variant={variant} size="sm" icon={<Icon name="session" size={14} />}
     onClick={() => { openSession(sessionId).catch(error => notify(errorText(error))) }}>{label ?? t('openSession')}</Button>
 }
