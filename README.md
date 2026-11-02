@@ -15,14 +15,16 @@ An always-on coding agent that listens to GitHub and chat, works on many tasks a
 </div>
 
 > [!NOTE]
-> **Independent community project. Not affiliated with or endorsed by DeepSeek.** Built on [dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) by the DeepSeek Harness Team under the MIT license. "2.0" is our name for this effort, not an official successor.
+> **This is a community fork of [deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype), the reference code for DeepSeek's Super-agent design.** It's independent and not affiliated with or endorsed by DeepSeek. "2.0" is our name for this effort, not an official successor.
 
 > [!WARNING]
 > **Don't run this on a repository or machine you care about yet.** Workers still run unconfined as your OS user ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)). We have blocked several paths at the host, but this is not secure until the P0 items below are closed.
 
 ## Why this exists
 
-The original repository [has issues, pull requests and discussions turned off](https://github.com/deepseek-ai/dsh-superagent-prototype) (checked through the GitHub API on 2 November 2026), so problems can't be reported or fixed there. **So we're fixing them here, in the open.**
+The original repository [has issues, pull requests and discussions turned off](https://github.com/deepseek-ai/dsh-superagent-prototype) (checked through the GitHub API on 2 November 2026), so problems can't be reported or fixed there. **So we forked it, and we're fixing them here, in the open.** This is the same Super-agent code, with our changes on top.
+
+If you've read the article and want to work on the Super-agent, you can do that here: open an issue, send a pull request, or pick up an item from the backlog.
 
 The original is a good design and a fair starting point. Its [article](https://x.com/DeepSeekHarness/status/2116857257245987236) calls the code a research prototype and names security and privacy as an open problem. This project takes that problem on.
 
