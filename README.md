@@ -4,13 +4,13 @@
 
 **The Super-agent architecture, rebuilt to withstand prompt injection.**
 
-An always-on coding agent that listens to GitHub and chat, works on many tasks at once, and has to stay safe while reading text from strangers.
+An always-on coding agent that listens to GitHub and chat, works on many tasks at once, and has to stay safe while reading text from strangers. Today it runs inside DeepSeek Harness; we are building it into a standalone product that runs on your own machine with the coding-agent CLI you already use.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: early](https://img.shields.io/badge/status-early%20%C2%B7%20not%20production%20ready-orange.svg)](#project-status)
 [![Issues open](https://img.shields.io/badge/backlog-54%20open%20items-lightgrey.svg)](ISSUES.md)
 
-[Why this exists](#why-this-exists) · [Status](#project-status) · [Fixed so far](#fixed-so-far) · [Still open](#still-open-and-how-were-fixing-it) · [Contribute](#contributing)
+[Why this exists](#why-this-exists) · [Standalone](#toward-a-standalone-product) · [Status](#project-status) · [Fixed so far](#fixed-so-far) · [Still open](#still-open-and-how-were-fixing-it) · [Contribute](#contributing)
 
 </div>
 
@@ -38,6 +38,26 @@ Prompts can ask a model to behave, but only the host can enforce it. We hold our
 2. **Error handling: failures are typed, bounded and visible.** Nothing retries forever or fails silently.
 3. **Communication: anyone authorized who asks gets an answer.** Accepted, declined or failed comes from the host, not from a model choosing to mention it.
 
+## Toward a standalone product
+
+The original only works as a plugin inside DeepSeek Harness (DSH): DSH loads it, serves its panel, runs its agent sessions and work tools, and signs in to a DeepSeek model. We want it to stand on its own:
+
+- **A desktop app.** A Tauri app for macOS first, with its own UI, no DSH needed. Other platforms come later.
+- **Your agent, your model.** Each role picks its own coding-agent CLI: Claude Code, Codex, Gemini CLI, OpenCode, or any other through a command template. We don't ship a model or an agent loop.
+- **Local first.** It runs on your machine against your repositories. Nothing is hosted.
+- **The same safety rules.** A CLI may act as the router, which reads strangers' text, only if the host can verify it runs with no built-in shell or file tools. Otherwise the host refuses it.
+
+| Piece | State |
+|---|---|
+| Standalone panel UI (`desktop/`), reusing the existing pages with no DSH shell | Works against a running service |
+| Ports between the engine and DSH (agent runner, host, models) | Done, with DSH as the only implementation |
+| Plain Node host that replaces DSH | Next |
+| Agent CLI runners and a per-ticket tool server | Next |
+| Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Planned |
+| Tauri desktop shell, setup wizard, signed build | Later |
+
+Only Claude Code is verified so far for running with no built-in tools. The others can run workers once their tool-server setup is checked, but they aren't allowed as the router yet.
+
 ## Project status
 
 | | |
@@ -45,6 +65,7 @@ Prompts can ask a model to behave, but only the host can enforce it. We hold our
 | **Fixed at the host** | 5 weaknesses in the attack path, covered by [tests](tests/attack-chain.spec.ts) |
 | **Open** | [54 items](ISSUES.md): 5 P0, 19 P1, 18 P2, 12 P3 |
 | **Tested with** | The real gate, tools and HTTP routes on a fake harness with no model |
+| **Standalone** | The panel UI runs on its own. The host, agent CLI runners and desktop app are not built yet ([plan](#toward-a-standalone-product)) |
 | **Not yet tested** | The real harness, or any real model following an injected comment ([SEC-04](ISSUES.md#sec-04-prove-or-disprove-the-attack-end-to-end)) |
 
 We haven't shown this attack working end to end. The tests prove what the host allows or refuses, not how a model behaves. We will publish results per model once the red-team run exists.
@@ -147,7 +168,15 @@ git clone https://github.com/abubakarsiddik31/super-agent-2
 cd super-agent-2 && pnpm install && pnpm check
 ```
 
-To run the agent, ask a coding agent to follow [SETUP.md](SETUP.md). It needs [DeepSeek Harness](https://www.deepseek.com/en/harness/), and the code and commands still use the name `dsh-superagent`. The management API now needs the token described in [the deployment guide](docs/006-deployment.md).
+To run the agent, ask a coding agent to follow [SETUP.md](SETUP.md). It still needs [DeepSeek Harness](https://www.deepseek.com/en/harness/) until the standalone host exists, and the code and commands still use the name `dsh-superagent`. The management API now needs the token described in [the deployment guide](docs/006-deployment.md).
+
+**The standalone panel.** With the service running, this serves the new UI on its own, without the DSH sidebar:
+
+```bash
+pnpm ui:dev
+```
+
+Then open http://localhost:5273. The dev server forwards the API to `http://127.0.0.1:3082` and adds the panel token itself, so the browser never holds it. Set `SUPERAGENT_API` or `SUPERAGENT_TOKEN_FILE` to point it elsewhere.
 
 ## Documentation
 
