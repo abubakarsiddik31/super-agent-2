@@ -13,6 +13,8 @@ export interface PanelContext {
   back: () => void
   backLabel: string
   openSession: (sessionId: string) => Promise<void>
+  /** Whether this host can open an agent Session; false hides every control that would. */
+  sessionLinks: boolean
   notify: (text: string) => void
   restart: () => void
 }
@@ -71,8 +73,8 @@ function Toast({ text, onDone, holdMs = 3000 }: { text: string; onDone: () => vo
 }
 const stay = () => {}
 const noSession = async () => {}
-export function PanelProvider({ t, interval = 5000, openSession = noSession, navigate = stay, back = stay, backLabel = '', children }: {
-  t: T; interval?: number; openSession?: (sessionId: string) => Promise<void>; navigate?: PanelContext['navigate']; back?: () => void
+export function PanelProvider({ t, interval = 5000, openSession = noSession, sessionLinks = true, navigate = stay, back = stay, backLabel = '', children }: {
+  t: T; interval?: number; openSession?: (sessionId: string) => Promise<void>; sessionLinks?: boolean; navigate?: PanelContext['navigate']; back?: () => void
   backLabel?: string
   children: ReactNode
 }) {
@@ -96,8 +98,8 @@ export function PanelProvider({ t, interval = 5000, openSession = noSession, nav
     const timer = setTimeout(() => setRestarting(undefined), 30_000)
     return () => clearTimeout(timer)
   }, [restarting])
-  const context = useMemo(() => ({ t, call, navigate, back, backLabel, openSession, notify, restart }), [t, call, navigate, back, backLabel,
-    openSession, notify, restart])
+  const context = useMemo(() => ({ t, call, navigate, back, backLabel, openSession, sessionLinks, notify, restart }), [t, call, navigate, back,
+    backLabel, openSession, sessionLinks, notify, restart])
   const data = useMemo(() => ({ state, error, reload, setup: state?.setup, running: state?.load.running ?? 0, restarts }), [state, error,
     reload, restarts])
   return <Panel.Provider value={context}><PanelState.Provider value={data}>
