@@ -238,9 +238,16 @@ export class ClaudeRunner implements AgentRunner {
     if (!prompt) return
     agent.status = 'running'
     this.publishStatus(agent, 'running')
+    // The message enters the transcript with the turn, as it does in the harness.
+    agent.record(prompt)
+    this.publishClaimed(agent, prompt)
+    this.publishUserMessage(agent, prompt)
     const controller = new AbortController()
     agent.aborting = controller
     const server = this.options.mcp ? await this.options.mcp(agent) : undefined
+    // The engine's prompt sections become the CLI's system prompt, in the order they were added.
+    const sections = [...agent.sections].sort((a, b) => a.order - b.order)
+    const systemPrompt = sections.map(section => section.text({ bound: true })).filter(Boolean).join('\n\n')
     const spec = {
       command: this.options.cli.command,
       args: this.options.cli.args ?? [],
@@ -250,6 +257,7 @@ export class ClaudeRunner implements AgentRunner {
       ...agent.model?.model ? { model: agent.model.model } : this.options.cli.model ? { model: this.options.cli.model } : {},
       mcpConfig: server ? JSON.stringify({ mcpServers: { superagent: { type: 'http', url: server.url,
         headers: { authorization: `Bearer ${server.token}` } } } }) : '',
+      ...systemPrompt ? { systemPrompt } : {},
       // The router reads text from strangers, so it runs with the CLI's own tools and servers taken away.
       noBuiltins: agent.role === 'orchestrator',
       strictMcp: agent.role === 'orchestrator',

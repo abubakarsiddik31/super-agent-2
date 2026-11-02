@@ -26,12 +26,13 @@ Super-agent listens to GitHub and chat, turns requests from people you authorize
 
 - **A plain Node host.** The engine, the management API and the Sources now run in one Node process with no DeepSeek software at all: `pnpm start`. The engine no longer depends on the harness, so the host and the agent runner are separate pieces and either can be replaced on its own.
 - **Claude Code runs a ticket.** The agent CLI is behind a runner of its own, and the engine's tools reach it over an MCP server the engine serves. The router, which reads text from strangers, runs with the CLI's built-in tools taken away, and the runner checks the CLI's own report of what it has and refuses it if anything else is there.
+- **The whole chain runs.** A request becomes a candidate, the router accepts it, a ticket appears with a workspace of its own, the CLI works in it, and its report reaches the ticket — all on the standalone host, with no DeepSeek software. The end-to-end test proves it with the real CLI.
 - **Ports in place.** The agent runner, host and model services now sit behind interfaces in `src/runner/port.ts`. DeepSeek Harness is the only implementation so far, and nothing about how it behaves changed. This is the seam that lets other runtimes plug in.
 - **A standalone panel.** The management UI in `desktop/` runs on its own, without the DeepSeek sidebar. It needs a running service for its data. Start it with `pnpm ui:dev`.
 - **Checked the agent CLIs.** We tried Claude Code, Codex, Gemini CLI and OpenCode for headless runs, session resume and removing built-in tools. Claude Code can run with no built-in tools, so it's the first CLI allowed to read strangers' text. For the other three, resume looks possible, but the tool-removal and tool-server setup still need testing.
 - **Checked the desktop webview.** The Tauri webview reaches the management API only if the API allows one extra origin, `tauri://localhost`. We'll add that as an option the desktop app turns on.
 - **Test with one account.** A new off-by-default `receiveOwnIssues` switch lets the agent receive Issues from its own GitHub account, so you can try it without a second account. Its own comments and pull requests are still ignored.
-- **Tests.** 1,230 pass.
+- **Tests.** 1,231 pass.
 
 Earlier: five weaknesses in the attack path were fixed at the host (see [fixed so far](#fixed-so-far)).
 

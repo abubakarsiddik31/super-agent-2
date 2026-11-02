@@ -33,6 +33,8 @@ export interface TurnSpec {
   readonly model?: string
   /** The MCP configuration the CLI loads, as a JSON string. */
   readonly mcpConfig: string
+  /** The system prompt the engine bound on the agent, which replaces the CLI's own. */
+  readonly systemPrompt?: string
   /** Whether the built-in tools are taken away. The router needs that; a worker may keep them. */
   readonly noBuiltins: boolean
   /** Whether the operator's own MCP servers are ignored. The router needs that. */
@@ -55,6 +57,8 @@ export function turnArgs(spec: TurnSpec): string[] {
   if (spec.strictMcp) args.push('--strict-mcp-config')
   if (spec.noCommands) args.push('--disable-slash-commands')
   if (spec.mcpConfig) args.push('--mcp-config', spec.mcpConfig)
+  // The engine's prompt replaces the CLI's own, so the agent runs under the engine's instructions only.
+  if (spec.systemPrompt) args.push('--system-prompt', spec.systemPrompt)
   if (spec.model) args.push('--model', spec.model)
   // A turn that continues a conversation resumes it; a turn that starts one names the id it will use.
   if (spec.sessionId) args.push('--resume', spec.sessionId)
