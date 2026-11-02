@@ -1,6 +1,6 @@
 /** Built-in prompt sections, role policies, and transcript projections for orchestrator and worker Sessions. */
 import { bundledSkills, promptFile } from './skill-files.ts'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { messageOf, type RunnerEvent } from '../runner/port.ts'
 export { textPage } from './cards.ts'
 
 /** Built-in host-delivery and tool-usage rules shared by all Sessions; a team may override them (`builtInParts`). */
@@ -26,8 +26,7 @@ export const handoffPolicy = (role: 'orchestrator' | 'worker'): string => `${han
 export const autoMergeThreshold = (lines: number): string => `it changes fewer than ${lines} lines (additions plus deletions);`
 
 /** Retains message content while omitting streamed chunks, usage accounting, and reasoning blocks. */
-export function transcriptEntry(event: SessionEvent) {
-  if (event.type !== 'user/message' && event.type !== 'tool/result' && event.type !== 'assistant/message') return undefined
-  const message = event.type === 'user/message' ? event.data : event.data.message
-  return { type: event.type, message: { role: message.role, content: message.content.filter(block => block.type !== 'reasoning') } }
+export function transcriptEntry(event: RunnerEvent) {
+  const message = messageOf(event)
+  return message && { type: event.type, message: { role: message.role, content: message.content.filter(block => block.type !== 'reasoning') } }
 }
