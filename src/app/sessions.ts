@@ -98,7 +98,7 @@ export class Sessions {
     const settings = this.host.store.settings()
     await initializeRoleModel(this.ports, agent, role === 'orchestrator' ? settings.eval.model : settings.executor.model)
     await this.decorate(agent)
-    // The Session works without permission prompts: on DSH this is ctx.permissionPresets.set(result.agent.session, 'danger-full-access').
+    // The Session works without permission prompts.
     runner.binder(agent).grantFullAccess()
     await runner.rename(id, title)
     return agent
@@ -203,7 +203,6 @@ export class Sessions {
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
       // The main Session reads untrusted text and can reply in public, so it gets no tool that reaches the machine: no shell, no file reads, no jobs.
-      // On DSH this is agent.ctx.tools.restrict({ allow: ['skill'] }).
       binding.disposers.push(binder.allowTools(['skill']))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.
