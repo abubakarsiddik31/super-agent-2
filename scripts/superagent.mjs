@@ -2,7 +2,7 @@
 /**
  * The standalone host: the engine, the management API and the Sources in one plain Node process, with no DeepSeek software.
  *
- * Usage: `superagent [--state-dir DIR] [--port N]`
+ * Usage: `superagent [--state-dir DIR] [--port N] [--cli COMMAND] [--cli-model MODEL]`
  *
  * The state directory holds the database, the locks, the worker shims and the panel token. The management API listens on the
  * loopback interface; the panel token in the state directory authorizes it.
@@ -16,8 +16,10 @@ function options(argv) {
     const argument = argv[index]
     if (argument === '--state-dir') values.stateDir = argv[++index]
     else if (argument === '--port') values.port = Number(argv[++index])
+    else if (argument === '--cli') values.cli = argv[++index]
+    else if (argument === '--cli-model') values.cliModel = argv[++index]
     else if (argument === '--help' || argument === '-h') {
-      console.log('Usage: superagent [--state-dir DIR] [--port N]')
+      console.log('Usage: superagent [--state-dir DIR] [--port N] [--cli COMMAND] [--cli-model MODEL]')
       process.exit(0)
     } else throw new Error(`Unknown option: ${argument}`)
   }
@@ -27,8 +29,15 @@ function options(argv) {
 const values = options(process.argv.slice(2))
 const stateDir = values.stateDir ?? process.env.SUPERAGENT_STATE_DIR
 const port = values.port ?? (process.env.SUPERAGENT_PORT ? Number(process.env.SUPERAGENT_PORT) : undefined)
-const host = await startStandalone({ ...stateDir ? { stateDir } : {}, ...port === undefined ? {} : { port } })
+const cli = values.cli ?? process.env.SUPERAGENT_CLI
+const cliModel = values.cliModel ?? process.env.SUPERAGENT_CLI_MODEL
+const host = await startStandalone({
+  ...stateDir ? { stateDir } : {},
+  ...port === undefined ? {} : { port },
+  ...cli ? { cli: { command: cli, ...cliModel ? { model: cliModel } : {} } } : {},
+})
 console.log(`superagent is listening on http://${host.host.http.host}:${host.host.http.port}`)
+console.log(`the agent CLI is ${cli ?? 'not configured; a ticket that needs an agent will fail'}`)
 console.log('the panel token is in the state directory, in panel-token')
 
 let stopping = false

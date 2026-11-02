@@ -4,8 +4,18 @@ Use this guide to install, configure and operate dsh-superagent. It covers accou
 
 ## What runs
 
-- **A dedicated DeepSeek Harness profile**, called `superagent` in this guide. Create it from the Web profile template. It loads the bundle and serves its panel on `127.0.0.1`. Keep it separate from the profile you work in: the plugin changes process-wide `PATH` and git settings, and its process needs independent restarts and upgrades.
+Two ways to run the application. The **standalone host** is a plain Node process that needs no DeepSeek software:
+
+```sh
+pnpm start --cli claude
+```
+
+The **DeepSeek Harness plugin** is the original way: a dedicated DSH profile, called `superagent` in this guide, that loads the bundle and serves its panel in its sidebar. Create it from the Web profile template. Keep it separate from the profile you work in: the plugin changes process-wide `PATH` and git settings, and its process needs independent restarts and upgrades.
+
+Both ways need the same things:
+
 - **An agent GitHub account.** The agent comments, pushes branches and opens pull requests as this account, through a GitHub CLI signed in only as that account.
+- **A coding-agent CLI**, signed in as the operator. The standalone host drives it directly; the harness plugin brings its own.
 - **Optional:** a Feishu bot for chat requests.
 
 Plugin configuration holds the state directory and machine limits. Use the panel for everything else: Sources for the repository and accounts, Policy for allowed lists, and Execution for worker directories and commands.
@@ -102,7 +112,7 @@ After the first start, edit machine limits in **Settings → Deployment** or the
 The application also runs as a plain Node process, with no DeepSeek software installed:
 
 ```sh
-pnpm start
+pnpm start --cli claude
 ```
 
 It serves the management API on the loopback interface and prints the port it chose. Everything else is the same: the same state directory, the same setup checks, the same Sources, the same panel.
@@ -111,6 +121,8 @@ It serves the management API on the loopback interface and prints the port it ch
 | --- | --- | --- |
 | `--state-dir DIR` | `SUPERAGENT_STATE_DIR` | `~/.dsh/state/superagent` |
 | `--port N` | `SUPERAGENT_PORT` | a free port the operating system picks |
+| `--cli COMMAND` | `SUPERAGENT_CLI` | none, so no agent can run |
+| `--cli-model MODEL` | `SUPERAGENT_CLI_MODEL` | the CLI's own default model |
 
 The state directory holds the database, the worker shims, the isolated git configuration and the panel token. It is created with mode `0700` and the token with mode `0600`.
 
@@ -122,7 +134,11 @@ pnpm ui:dev
 
 It forwards the API and adds the panel token itself, so the browser never holds it. `SUPERAGENT_API` and `SUPERAGENT_TOKEN_FILE` point it elsewhere.
 
-**What the standalone host cannot do yet.** No coding-agent CLI is behind it, so a Ticket that needs an agent fails with a message that says so. The Sources, the Policy, the panel and the setup checks all work. The runner that closes this gap is described in `docs/spikes/001-cli-runners.md`.
+**The agent CLI.** The CLI runs one turn per process. The engine's tools reach it over an MCP server the engine serves on the loopback interface, so the CLI needs no configuration of its own. The CLI must be signed in as the operator: `claude` uses the login in its keychain, so sign in with `claude` once before starting.
+
+The router, which reads text from strangers, runs with the CLI's built-in tools taken away and with the operator's own MCP servers ignored. The runner checks what the CLI reports it has and refuses the router if anything but the engine's own tools is there.
+
+**What the standalone host cannot do yet.** Only Claude Code is written. Codex, Gemini CLI and OpenCode need their MCP and resume invocations verified first; see `docs/spikes/001-cli-runners.md`.
 
 ## Start and stop
 

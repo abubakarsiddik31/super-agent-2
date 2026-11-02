@@ -25,12 +25,13 @@ Super-agent listens to GitHub and chat, turns requests from people you authorize
 **2 November 2026**
 
 - **A plain Node host.** The engine, the management API and the Sources now run in one Node process with no DeepSeek software at all: `pnpm start`. The engine no longer depends on the harness, so the host and the agent runner are separate pieces and either can be replaced on its own.
+- **Claude Code runs a ticket.** The agent CLI is behind a runner of its own, and the engine's tools reach it over an MCP server the engine serves. The router, which reads text from strangers, runs with the CLI's built-in tools taken away, and the runner checks the CLI's own report of what it has and refuses it if anything else is there.
 - **Ports in place.** The agent runner, host and model services now sit behind interfaces in `src/runner/port.ts`. DeepSeek Harness is the only implementation so far, and nothing about how it behaves changed. This is the seam that lets other runtimes plug in.
 - **A standalone panel.** The management UI in `desktop/` runs on its own, without the DeepSeek sidebar. It needs a running service for its data. Start it with `pnpm ui:dev`.
 - **Checked the agent CLIs.** We tried Claude Code, Codex, Gemini CLI and OpenCode for headless runs, session resume and removing built-in tools. Claude Code can run with no built-in tools, so it's the first CLI allowed to read strangers' text. For the other three, resume looks possible, but the tool-removal and tool-server setup still need testing.
 - **Checked the desktop webview.** The Tauri webview reaches the management API only if the API allows one extra origin, `tauri://localhost`. We'll add that as an option the desktop app turns on.
 - **Test with one account.** A new off-by-default `receiveOwnIssues` switch lets the agent receive Issues from its own GitHub account, so you can try it without a second account. Its own comments and pull requests are still ignored.
-- **Tests.** 1,210 pass.
+- **Tests.** 1,230 pass.
 
 Earlier: five weaknesses in the attack path were fixed at the host (see [fixed so far](#fixed-so-far)).
 
@@ -53,13 +54,13 @@ flowchart LR
 
 | CLI | As a worker | As the router |
 |---|---|---|
-| Claude Code | First adapter to build | Can run with no built-in tools (checked) |
+| Claude Code | Works | Works: runs with no built-in tools (checked) |
 | Codex | Planned | Not verified yet |
 | Gemini CLI | Planned | Not verified yet |
 | OpenCode | Planned | Not verified yet |
 | Any other CLI | Through a command template | Only if the host can verify it has no built-in tools |
 
-None of these adapters is written yet. The table is the plan, plus what we checked.
+The Claude Code adapter is written; the others are the plan.
 
 The router reads text from strangers, so it's the role to protect. The host refuses a CLI there unless it can confirm the CLI runs with only our routing tools and no shell or file access. A CLI that can't prove that can still be a worker.
 
@@ -69,8 +70,8 @@ The router reads text from strangers, so it's the role to protect. The host refu
 |---|---|
 | Ports between the engine and DSH | Done |
 | Standalone panel UI | Done; needs a running service |
-| Plain Node host that replaces DSH | Done; runs the panel and the Sources, no agent CLI behind it yet |
-| CLI runners: Claude Code first, then Codex, Gemini CLI, OpenCode and a command template | Next |
+| Plain Node host that replaces DSH | Done; runs the panel, the Sources and the agent CLI |
+| CLI runners: Claude Code first, then Codex, Gemini CLI, OpenCode and a command template | Claude Code done; the others planned |
 | Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Planned |
 | Tauri desktop app with a setup wizard | Later |
 
@@ -202,13 +203,13 @@ git clone https://github.com/abubakarsiddik31/super-agent-2
 cd super-agent-2 && pnpm install && pnpm check
 ```
 
-**The standalone host.** This runs the engine, the management API and the Sources in one Node process, with no DeepSeek software:
+**The standalone host.** This runs the engine, the management API, the Sources and the agent CLI in one Node process, with no DeepSeek software:
 
 ```bash
-pnpm start
+pnpm start --cli claude
 ```
 
-It listens on the loopback interface and prints the port it chose. The state directory (by default `~/.dsh/state/superagent`) holds the database, the worker shims and the panel token. `--state-dir` and `--port` change where it runs. The agent CLI is not wired in yet, so a ticket that needs an agent fails with a message that says so.
+It listens on the loopback interface and prints the port it chose. The state directory (by default `~/.dsh/state/superagent`) holds the database, the worker shims and the panel token. `--state-dir`, `--port`, `--cli` and `--cli-model` change where it runs and which CLI it drives. Without `--cli`, the panel and the Sources still run, and a ticket that needs an agent fails with a message that says so.
 
 **The standalone panel.** With the service running, this serves the new UI on its own, without the DSH sidebar:
 
@@ -218,7 +219,7 @@ pnpm ui:dev
 
 Then open http://localhost:5273. The dev server forwards the API to `http://127.0.0.1:3082` and adds the panel token itself, so the browser never holds it. Set `SUPERAGENT_API` or `SUPERAGENT_TOKEN_FILE` to point it elsewhere.
 
-**Inside the DeepSeek Harness.** The original plugin still works, and is still the only way to run an agent until the CLI runners land. To run it that way, ask a coding agent to follow [SETUP.md](SETUP.md). The code and commands still use the name `dsh-superagent`, and the management API needs the token described in [the deployment guide](docs/006-deployment.md).
+**Inside the DeepSeek Harness.** The original plugin still works, and still runs agents the DeepSeek way. To run it that way, ask a coding agent to follow [SETUP.md](SETUP.md). The code and commands still use the name `dsh-superagent`, and the management API needs the token described in [the deployment guide](docs/006-deployment.md).
 
 ## Documentation
 

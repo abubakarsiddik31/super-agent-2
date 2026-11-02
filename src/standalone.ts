@@ -4,10 +4,10 @@
  * This is the host that replaces the DeepSeek Harness. It needs no DeepSeek software: the management API is served by the
  * process itself, the Sources poll on their own, and the state lives in the state directory.
  *
- * The agent side is a separate piece: a coding-agent CLI behind a runner of its own, which this host has not yet; see
- * `docs/spikes/001-cli-runners.md`. Until then the host runs the panel and the Sources, and a ticket that needs an agent
- * fails with a message that says so.
+ * The agent side is a coding-agent CLI behind a runner of its own. When no CLI is configured, the host runs the panel and
+ * the Sources, and a ticket that needs an agent fails with a message that says so.
  */
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { Runtime } from './app/runtime.ts'
@@ -16,6 +16,8 @@ import { nodeModels } from './host/models.ts'
 import { startNodeHost, type NodeHost } from './host/node.ts'
 import { EmptyRunner } from './host/runner.ts'
 import { nodeSubprocess } from './host/subprocess.ts'
+import { ClaudeRunner, type CliConfig } from './runner/cli/claude.ts'
+import { startMcpServer } from './runner/cli/mcp.ts'
 import { definePorts, type AgentPorts, type TranscriptStore } from './runner/port.ts'
 import { startFeishu } from './sources/feishu.ts'
 import { startGithub } from './sources/github.ts'
@@ -26,6 +28,8 @@ export interface StandaloneOptions {
   readonly stateDir?: string
   /** The port the management API listens on; `0` asks the operating system for a free one. */
   readonly port?: number
+  /** The coding-agent CLI the agent side runs; without one, no agent can run. */
+  readonly cli?: CliConfig
 }
 
 /** The default state directory: the same one the harness plugin used. */
@@ -39,16 +43,30 @@ export const standaloneMachine = (stateDir: string): Machine => ({
   admissionContextTimeoutMs: { get: () => 15_000 },
 })
 
-/** The agent-side ports of the standalone host: no agent CLI behind them yet. */
-export function standalonePorts(): AgentPorts {
+/**
+ * The agent-side ports of the standalone host.
+ *
+ * With a CLI configured, the runner is the one over that CLI, and every agent reaches the engine's tools through an MCP
+ * server the engine serves. Without one, the runner has no agent to create and every ticket that needs one fails visibly.
+ */
+export function standalonePorts(cli?: CliConfig): AgentPorts {
   const transcripts: TranscriptStore = {
-    flush: async () => { /* No transcripts are kept while no agent runs. */ },
+    flush: async () => { /* The CLI's own session files hold the transcript. */ },
     readUserMessages: async () => [],
     events: async () => [],
   }
-  return definePorts({ runner: new EmptyRunner(), transcripts, models: nodeModels(), subprocess: nodeSubprocess,
-    logger: { info: (format, ...args) => { console.log(format, ...args) }, warn: (format, ...args) => { console.warn(format, ...args) },
-      error: (format, ...args) => { console.error(format, ...args) } } })
+  const logger = { info: (format: string, ...args: unknown[]) => { console.log(format, ...args) },
+    warn: (format: string, ...args: unknown[]) => { console.warn(format, ...args) },
+    error: (format: string, ...args: unknown[]) => { console.error(format, ...args) } }
+  if (!cli) return definePorts({ runner: new EmptyRunner(), transcripts, models: nodeModels(), subprocess: nodeSubprocess, logger })
+  const runner = new ClaudeRunner({ cli, subprocess: nodeSubprocess, logger,
+    // The CLI reaches the engine's tools through an MCP server the engine serves, one per agent. The server offers the
+    // tools the engine bound on that agent, and a tool the engine released stops answering.
+    mcp: async agent => {
+      const server = await startMcpServer(agent, randomUUID())
+      return { url: server.url, token: server.token }
+    } })
+  return definePorts({ runner, transcripts, models: nodeModels(), subprocess: nodeSubprocess, logger })
 }
 
 /** A running standalone host. */
@@ -77,7 +95,7 @@ export async function startStandalone(options: StandaloneOptions = {}): Promise<
     for (const stop of sources) await stop()
     sources = []
     host = await startNodeHost({ stateDir, limits: machine, ...options.port === undefined ? {} : { port: options.port }, restart })
-    runtime = new Runtime(host, standalonePorts(), machine, restart)
+    runtime = new Runtime(host, standalonePorts(options.cli), machine, restart)
     // The Sources reach the engine through the `SourceHost` interface, which the runtime implements.
     const sourceHost = runtime as unknown as SourceHost
     await runtime.ready

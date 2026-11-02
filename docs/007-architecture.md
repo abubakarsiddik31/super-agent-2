@@ -364,6 +364,9 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/host/subprocess.ts` | The `Subprocess` over Node's `child_process`: the credential scrub a child starts from, the collected output of a stream, and the termination a signal starts |
 | `src/host/models.ts` | The `ModelInfo` of the standalone host: it checks that a configured route names a model and knows no provider of its own, because the CLI behind the runner chooses the model |
 | `src/host/runner.ts` | `EmptyRunner`, the runner of a host with no agent CLI behind it yet: every call that would need an agent fails with `NO_AGENT_CLI` |
+| `src/runner/cli/mcp.ts` | The MCP server that exposes the engine's tools to a CLI: it runs in the engine's process on the loopback interface, it answers the discover probe a Claude Code sends before it initializes, and a tool the engine released stops answering |
+| `src/runner/cli/turn.ts` | One turn of a CLI: the arguments it runs with, the events it prints, and the router's tool check |
+| `src/runner/cli/claude.ts` | `ClaudeRunner`, the `AgentRunner` over the `claude` CLI, and `CliBinder`, what the engine installs on one agent |
 | `src/standalone.ts` | The standalone entry point: the engine, the management server and the Sources in one plain Node process, and the machine settings and agent-side ports of that host |
 | `src/executor/background.ts` | A worker's background work through the runner, the shell jobs its Session owns and its subagents: `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
 | `src/infra/commands.ts` | `Commands`, the CLI transport: `run`; `api` and `pages`, limited to the configured repository and validated; `lark` as the bot; `git`. `CliError` carries the code a command's output reports, such as a GitHub HTTP status, and a command that prints nothing fails with how it ended, never with its arguments; `validItems` skips and counts the malformed items of a list |
@@ -439,6 +442,10 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/retry-health.spec.ts`, `tests/role-models.spec.ts` | Model budget retries, and the models of the two roles |
 | `tests/runtime.spec.ts` | The whole application on a simulated DeepSeek Harness host, through tools and HTTP |
 | `tests/standalone.spec.ts` | The standalone host: the engine and the management server in one plain Node process, the same-origin and token checks over HTTP, and the credential scrub of a child process |
+| `tests/mcp.spec.ts` | The MCP server the engine serves: the handshake, the discover probe a Claude Code sends, a tool call, a tool failure and a released tool |
+| `tests/cli-runner.spec.ts` | The arguments one turn of the CLI runs with, and the router's tool check |
+| `tests/claude-cli.spec.ts` | The real `claude` binary against the engine's MCP server: that it connects, and that the init event reports only the engine's tools |
+| `tests/claude-turn.spec.ts` | The real `claude` binary through the runner: one turn, its events, and the session id that resumes it |
 | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
 | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
 | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |
