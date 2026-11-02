@@ -1024,7 +1024,7 @@ it('reports GitHub as failing only after the configured number of consecutive fa
   expect(pollFailure(2, 3, eof)).toBeUndefined()
   expect(pollFailure(3, 3, eof)).toEqual({ state: 'error', detail: '3 consecutive failed polls; last: Error: Get "https://api.github.com/x": EOF', code: 'pollFailures', values: { count: '3', error: 'Error: Get "https://api.github.com/x": EOF' } })
   expect(githubKind.schema.parse({})).toEqual({ repository: '', cli: '', pollSeconds: 60, failuresBeforeError: 3, observeIssues: false,
-    observePulls: false, observeComments: false, observeCi: false })
+    observePulls: false, observeComments: false, observeCi: false, receiveOwnIssues: false })
 })
 describe('feishu event consumer', () => {
   let dir: string
@@ -1333,6 +1333,24 @@ describe('observing the GitHub repository', () => {
     await pollRound(h)
     expect(Object.keys(h.store.get<{ started: Record<string, string> }>('github-stream:issues')!.started)).toEqual(['pulls'])
     h.store.close()
+  })
+  it('skips the agent account\'s own Issues unless receiveOwnIssues is on, and then still skips its own PRs and comments', async () => {
+    const own = { user: { login: 'agent-bot', type: 'User' } }
+    const answers = { issues: [issue(5, { ...own, created_at: at(2), updated_at: at(2) }),
+      { ...issue(6, { ...own, created_at: at(3), updated_at: at(3) }), pull_request: { url: 'x' } }],
+    comments: [{ id: 1, body: 'note', created_at: at(4), updated_at: at(4), html_url: 'https://github.com/acme/widgets/issues/5#c1',
+      issue_url: 'https://api.github.com/repos/acme/widgets/issues/5', user: { login: 'agent-bot', type: 'User' } }] }
+    for (const own_ of [false, true]) {
+      const h = host()
+      observe(h, { observeIssues: true, observePulls: true, observeComments: true, receiveOwnIssues: own_ })
+      h.store.set('github-since', at(-24))
+      h.store.set('github-stream:issues', { since: at(0), started: { issues: at(0), pulls: at(0) } })
+      h.store.set('github-stream:comments', { since: at(0), started: { comments: at(0) } })
+      repository(h, answers)
+      await pollRound(h)
+      expect(h.receive.mock.calls.map(([trigger]) => [trigger.meta.number, trigger.meta.kind])).toEqual(own_ ? [[5, 'issue']] : [])
+      h.store.close()
+    }
   })
   it('keeps a stream\'s cursor five seconds before its newest item, and a stale cursor on the hour, so the ETag is sent again', async () => {
     const h = host()
