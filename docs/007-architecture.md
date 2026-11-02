@@ -446,6 +446,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/cli-runner.spec.ts` | The arguments one turn of the CLI runs with, and the router's tool check |
 | `tests/claude-cli.spec.ts` | The real `claude` binary against the engine's MCP server: that it connects, and that the init event reports only the engine's tools |
 | `tests/claude-turn.spec.ts` | The real `claude` binary through the runner: one turn, its events, and the session id that resumes it |
+| `tests/end-to-end.spec.ts` | A ticket through the standalone host and the real CLI: the request, the candidate, the ticket, the worker's own directory, and the worker's report |
 | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
 | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
 | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |

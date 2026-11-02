@@ -78,6 +78,8 @@ export class Runtime implements SourceHost {
   private readonly toolHost: MainToolsHost & ExecutorToolsHost
   /** The agent side the engine runs its sessions on. */
   private readonly ports: AgentPorts
+  /** The agent runner, which holds the agents the engine's sessions run in. */
+  get runner(): AgentPorts['runner'] { return this.ports.runner }
   /** Non-zero while a main-Session tool is executing an Engine command, suppressing self-triggered domain event notices. */
   private quiet = 0
   /** The bearer token the management API requires; see `src/app/panel-token.ts`. */

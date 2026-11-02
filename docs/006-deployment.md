@@ -138,7 +138,7 @@ It forwards the API and adds the panel token itself, so the browser never holds 
 
 The router, which reads text from strangers, runs with the CLI's built-in tools taken away and with the operator's own MCP servers ignored. The runner checks what the CLI reports it has and refuses the router if anything but the engine's own tools is there.
 
-**What the standalone host cannot do yet.** Only Claude Code is written. Codex, Gemini CLI and OpenCode need their MCP and resume invocations verified first; see `docs/spikes/001-cli-runners.md`.
+**What the standalone host cannot do yet.** Only Claude Code is written. Codex, Gemini CLI and OpenCode need their MCP and resume invocations verified first; see `docs/spikes/001-cli-runners.md`. Workers are not isolated yet either: they run as your OS user and can read the panel token and the database ([SEC-01](https://github.com/abubakarsiddik31/super-agent-2/blob/main/ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)).
 
 ## Start and stop
 

@@ -73,6 +73,8 @@ export function standalonePorts(cli?: CliConfig): AgentPorts {
 export interface Standalone {
   readonly runtime: Runtime
   readonly host: NodeHost
+  /** Rebuilds the engine, as after an account change; the Sources are stopped and started again. */
+  restart(): Promise<void>
   /** Stops the Sources, the engine and the management server. */
   stop(): Promise<void>
 }
@@ -86,10 +88,10 @@ export async function startStandalone(options: StandaloneOptions = {}): Promise<
   const stateDir = options.stateDir ?? defaultStateDir()
   const machine = standaloneMachine(stateDir)
   let host: NodeHost | undefined
-  // The restart rebuilds the engine in place, so an account change re-runs setup without the process restarting.
-  const restart = (): void => { void restartEngine() }
   let runtime: Runtime | undefined
   let sources: (() => Promise<void>)[] = []
+  // The restart rebuilds the engine in place, so an account change re-runs setup without the process restarting.
+  const restart = (): void => { void build() }
   const build = async (): Promise<void> => {
     await runtime?.stop()
     for (const stop of sources) await stop()
@@ -101,17 +103,16 @@ export async function startStandalone(options: StandaloneOptions = {}): Promise<
     await runtime.ready
     sources = [startGithub(sourceHost), startFeishu(sourceHost)]
   }
-  const restartEngine = async (): Promise<void> => { await build() }
   await build()
-  const running = runtime!
-  const runningHost = host!
   return {
-    runtime: running,
-    host: runningHost,
+    // The runtime is rebuilt on a restart, so the caller reads the one that is running now.
+    get runtime() { return runtime! },
+    get host() { return host! },
+    restart: build,
     stop: async () => {
       for (const stop of sources.reverse()) await stop()
-      await running.stop()
-      await runningHost.stop()
+      await runtime?.stop()
+      await host?.stop()
     },
   }
 }
