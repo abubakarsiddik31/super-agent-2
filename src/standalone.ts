@@ -8,12 +8,15 @@
  * the Sources, and a ticket that needs an agent fails with a message that says so.
  */
 import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { panelToken } from './app/panel-token.ts'
 import { Runtime } from './app/runtime.ts'
 import { machineOf, type DeploymentConfig, type Machine } from './deployment.ts'
 import { nodeModels } from './host/models.ts'
 import { startNodeHost, type NodeHost } from './host/node.ts'
+import { panelDirectory, panelHandler } from './host/panel.ts'
 import { EmptyRunner } from './host/runner.ts'
 import { nodeSubprocess } from './host/subprocess.ts'
 import { ClaudeRunner, type CliConfig } from './runner/cli/claude.ts'
@@ -29,6 +32,8 @@ export interface StandaloneOptions {
   readonly stateDir?: string
   /** The port the management API listens on; `0` asks the operating system for a free one. */
   readonly port?: number
+  /** Where the built panel is; defaults to `desktop/dist` of this installation. */
+  readonly panelDirectory?: string
   /** The coding-agent CLI the agent side runs; without one, no agent can run. */
   readonly cli?: CliConfig
   /**
@@ -40,8 +45,15 @@ export interface StandaloneOptions {
   readonly sandboxExtras?: SandboxExtras
 }
 
-/** The default state directory: the same one the harness plugin used. */
-export const defaultStateDir = (): string => join(homedir(), '.dsh', 'state', 'superagent')
+/**
+ * The default state directory: `~/.superagent`. An installation that already has the harness plugin's directory keeps using
+ * it, so its database and token are found.
+ */
+export const defaultStateDir = (): string => {
+  const own = join(homedir(), '.superagent')
+  const legacy = join(homedir(), '.dsh', 'state', 'superagent')
+  return !existsSync(own) && existsSync(legacy) ? legacy : own
+}
 
 /** The machine settings of the standalone host; the limits change in place without a restart. */
 export const standaloneMachine = (stateDir: string): Machine => ({
@@ -70,8 +82,8 @@ export function standalonePorts(cli?: CliConfig, confinement?: { stateDir: strin
   // Agents read text from strangers and run code they did not write, so the operating system confines them. A host that
   // cannot confine them refuses to start rather than run them as the operator.
   const sandbox = chooseSandbox(confinement?.mode)
-  if (sandbox) logger.info('dsh-superagent: agents run in the %s sandbox', sandbox.name)
-  else logger.warn('dsh-superagent: the sandbox is off; agents run as your own user and can read and change anything you can')
+  if (sandbox) logger.info('superagent: agents run in the %s sandbox', sandbox.name)
+  else logger.warn('superagent: the sandbox is off; agents run as your own user and can read and change anything you can')
   const confine = sandbox && confinement
     ? (workspace: string, argv: readonly string[]) => sandbox.wrap(argv, policyFor({ workspace, stateDir: confinement.stateDir, command: cli.command,
         ...confinement.extras ? { extras: confinement.extras } : {} })).argv
@@ -104,32 +116,37 @@ export interface Standalone {
 export async function startStandalone(options: StandaloneOptions = {}): Promise<Standalone> {
   const stateDir = options.stateDir ?? defaultStateDir()
   const machine = standaloneMachine(stateDir)
-  let host: NodeHost | undefined
   let runtime: Runtime | undefined
   let sources: (() => Promise<void>)[] = []
   // The restart rebuilds the engine in place, so an account change re-runs setup without the process restarting.
   const restart = (): void => { void build() }
+  // The management server starts once and outlives every rebuild of the engine, so the panel's address does not change
+  // when an account does.
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+  const host = await startNodeHost({ stateDir, limits: machine, ...options.port === undefined ? {} : { port: options.port }, restart })
+  // The panel is part of the host: one process, one address.
+  host.http.fallback(panelHandler({ directory: options.panelDirectory ?? panelDirectory(), port: () => host.http.port, token: () => panelToken(stateDir) }))
   const build = async (): Promise<void> => {
     await runtime?.stop()
     for (const stop of sources) await stop()
     sources = []
-    host = await startNodeHost({ stateDir, limits: machine, ...options.port === undefined ? {} : { port: options.port }, restart })
-    runtime = new Runtime(host, standalonePorts(options.cli, { stateDir, ...options.sandbox ? { mode: options.sandbox } : {}, ...options.sandboxExtras ? { extras: options.sandboxExtras } : {} }), machine, restart)
+    runtime = new Runtime(host, standalonePorts(options.cli, { stateDir, ...options.sandbox ? { mode: options.sandbox } : {},
+      ...options.sandboxExtras ? { extras: options.sandboxExtras } : {} }), machine, restart)
     // The Sources reach the engine through the `SourceHost` interface, which the runtime implements.
     const sourceHost = runtime as unknown as SourceHost
     await runtime.ready
     sources = [startGithub(sourceHost), startFeishu(sourceHost)]
   }
-  await build()
+  try { await build() } catch (error) { await host.stop(); throw error }
   return {
     // The runtime is rebuilt on a restart, so the caller reads the one that is running now.
     get runtime() { return runtime! },
-    get host() { return host! },
+    host,
     restart: build,
     stop: async () => {
       for (const stop of sources.reverse()) await stop()
       await runtime?.stop()
-      await host?.stop()
+      await host.stop()
     },
   }
 }

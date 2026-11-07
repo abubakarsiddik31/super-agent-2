@@ -1,5 +1,5 @@
 /** Vite config for the standalone panel: serves `desktop/ui`, and in development forwards the management API to a running service. */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,7 +7,8 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 const target = process.env.SUPERAGENT_API ?? 'http://127.0.0.1:3082'
-const tokenFile = process.env.SUPERAGENT_TOKEN_FILE ?? join(homedir(), '.dsh', 'state', 'superagent', 'panel-token')
+const tokenFile = process.env.SUPERAGENT_TOKEN_FILE ?? [join(homedir(), '.superagent', 'panel-token'), join(homedir(), '.dsh', 'state', 'superagent', 'panel-token')]
+  .find(file => existsSync(file)) ?? join(homedir(), '.superagent', 'panel-token')
 const panelToken = (): string | undefined => { try { return readFileSync(tokenFile, 'utf8').trim() || undefined } catch { return undefined } }
 
 export default defineConfig({

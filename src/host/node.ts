@@ -4,7 +4,7 @@
  * The harness's own host provides a logger, a Web server and a way to restart the plugin. This host provides the same through
  * the process and an HTTP server: the logger writes to the console, and `restart` asks the entry point to build a new runtime.
  */
-import type { Logger } from '../runner/port.ts'
+import type { HttpHandler, Logger } from '../runner/port.ts'
 import { startNodeHttp, type NodeHttp } from './http.ts'
 
 /** The console logger the harness logger's format is compatible with. */
@@ -30,7 +30,8 @@ export interface NodeHost {
   readonly logger: Logger
   readonly stateDir: string
   readonly limits: NodeHostOptions['limits']
-  readonly http: { readonly host: string; readonly port: number; mount(prefix: string, handler: (req: never, res: never) => void): () => void }
+  readonly http: { readonly host: string; readonly port: number; mount(prefix: string, handler: (req: never, res: never) => void): () => void
+    fallback(handler: HttpHandler): () => void }
   restart(): void
   /** Closes the management server. */
   stop(): Promise<void>
@@ -48,6 +49,7 @@ export async function startNodeHost(options: NodeHostOptions): Promise<NodeHost>
       get host() { return server.host },
       get port() { return server.port },
       mount: (prefix, handler) => server.mount(prefix, handler as never),
+      fallback: handler => server.fallback(handler),
     },
     restart() { options.restart?.() },
     stop() { return stopping ??= server.close() },

@@ -110,7 +110,7 @@ it('shows the account each CLI signs in as, and keeps a saved CLI on screen whil
   expect(labels()).toEqual(['监听的仓库', '智能体的 GitHub CLI', '轮询间隔 / 秒', '连续失败几次后报告异常'])
   expect(all('.dt-card')[0]!.textContent).toContain('当前机器人 Widgets Bot')
   await type(field<HTMLInputElement>('智能体的 GitHub CLI'), '/opt/bin/gh-agent')
-  expect(github.textContent).toContain('保存会重启 dsh-superagent：2 个进行中的派工会中断，并带恢复说明重新开始。')
+  expect(github.textContent).toContain('保存会重启 Superagent：2 个进行中的派工会中断，并带恢复说明重新开始。')
   await act(async () => { github.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
   expect(server.settings.sources.github!.config).toMatchObject({ cli: '/opt/bin/gh-agent' })
   expect(text()).toContain(zh.savedRestarting)
@@ -149,7 +149,7 @@ it('points a setup problem at the settings that fix it', async () => {
   await click(zh['tab.overview'])
   await click(find(zh.problemSetup, 'button, a, [role="button"]'))
   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['settingsGroup.deployment'])
-  expect(text()).toContain('部署检查未通过：git 没有读取 dsh-superagent 为 github.com 写的凭据配置')
+  expect(text()).toContain('部署检查未通过：git 没有读取 Superagent 为 github.com 写的凭据配置')
 })
 
 it('shows a failed Feishu bot check as a problem of the Feishu Source only, with a check after a fix outside dsh-superagent', async () => {
@@ -163,7 +163,7 @@ it('shows a failed Feishu bot check as a problem of the Feishu Source only, with
   expect(feishu.textContent).toContain('部署检查未通过：应用 cli_bot 的机器人身份状态是 missing；用 lark-cli 配置应用密钥。')
   // dsh-superagent runs meanwhile, so checking again asks first: the restart interrupts running Executor Sessions.
   await click([...feishu.querySelectorAll('button')].find(button => button.textContent === '重新检查')!)
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('重新检查会重启 dsh-superagent：2 个进行中的派工会中断')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('重新检查会重启 Superagent：2 个进行中的派工会中断')
   expect(server.requests.some(request => request.path === 'setup/check')).toBe(false)
   await click(zh.confirm)
   expect(server.requests.some(request => request.path === 'setup/check')).toBe(true)

@@ -6,7 +6,7 @@
 
 Super-agent listens to GitHub and chat, turns requests from people you authorize into tickets, and runs each one in its own workspace with the agent CLI you choose: Claude Code, Codex, Gemini CLI, OpenCode, or any other. It is built to stay safe while reading text from strangers, even if the model is fooled.
 
-> **Today it only works inside the DeepSeek Harness UI.** Making it standalone, with no DeepSeek software and any CLI you like, is the main thing we're building. See the [roadmap](#roadmap).
+> **It runs on its own.** One command starts the host, the panel and your coding-agent CLI on your machine, with no DeepSeek software. Claude Code is the first CLI supported; the others are next. See the [roadmap](#roadmap).
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -25,6 +25,7 @@ Super-agent listens to GitHub and chat, turns requests from people you authorize
 **8 November 2026**
 
 - **Workers run in a sandbox.** On the standalone host every agent process, and everything it starts, runs under the operating system's own confinement: Seatbelt on macOS, bubblewrap on Linux. It cannot read your home directory, cannot touch the state directory (the database, the panel token, other tickets), and can write only in its own ticket directory. The host refuses to start an agent without a sandbox unless you pass `--sandbox off`. Tests run real commands under it, and the real Claude Code CLI works confined.
+- **One command runs everything.** `pnpm start` now serves the panel too, on the same address as the API, and opens it in your browser. There is no second server, no sign-in prompt, and the address stays the same when the engine restarts after a settings change. The panel's text no longer talks about DSH, and the state directory defaults to `~/.superagent`.
 
 **2 November 2026**
 
@@ -74,8 +75,8 @@ The router reads text from strangers, so it's the role to protect. The host refu
 | Step | State |
 |---|---|
 | Ports between the engine and DSH | Done |
-| Standalone panel UI | Done; needs a running service |
-| Plain Node host that replaces DSH | Done; runs the panel, the Sources and the agent CLI |
+| Standalone panel UI | Done; the host serves it |
+| Plain Node host that replaces DSH | Done; one process runs the panel, the Sources and the agent CLI |
 | CLI runners: Claude Code first, then Codex, Gemini CLI, OpenCode and a command template | Claude Code done; the others planned |
 | Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Done on macOS and Linux for the standalone host; no container or Windows yet |
 | Tauri desktop app with a setup wizard | Later |
@@ -105,7 +106,7 @@ Prompts can ask a model to behave, but only the host can enforce it. We hold our
 | **Fixed at the host** | 5 weaknesses in the attack path, covered by [tests](tests/attack-chain.spec.ts) |
 | **Open** | [54 items](ISSUES.md): 5 P0, 19 P1, 18 P2, 12 P3 |
 | **Tested with** | The real gate, tools and HTTP routes on a fake harness with no model |
-| **Standalone** | The panel UI and a plain Node host run on their own. The agent CLI runners and the desktop app are not built yet ([roadmap](#roadmap)) |
+| **Standalone** | The host, the panel and the Claude Code runner run as one product: `pnpm start`. The other CLIs and the desktop app are not built yet ([roadmap](#roadmap)) |
 | **Not yet tested** | The real harness, or any real model following an injected comment ([SEC-04](ISSUES.md#sec-04-prove-or-disprove-the-attack-end-to-end)) |
 
 We haven't shown this attack working end to end. The tests prove what the host allows or refuses, not how a model behaves. We will publish results per model once the red-team run exists.
@@ -208,21 +209,17 @@ git clone https://github.com/abubakarsiddik31/super-agent-2
 cd super-agent-2 && pnpm install && pnpm check
 ```
 
-**The standalone host.** This runs the engine, the management API, the Sources and the agent CLI in one Node process, with no DeepSeek software:
+**Start it.** One process runs the engine, the management API, the Sources, the agent CLI and the panel:
 
 ```bash
-pnpm start --cli claude
+pnpm build && pnpm start --cli claude
 ```
 
-It listens on the loopback interface and prints the port it chose. The state directory (by default `~/.dsh/state/superagent`) holds the database, the worker shims and the panel token. `--state-dir`, `--port`, `--cli` and `--cli-model` change where it runs and which CLI it drives. Without `--cli`, the panel and the Sources still run, and a ticket that needs an agent fails with a message that says so.
+It opens the panel at http://127.0.0.1:3082 (another free port when that one is taken; `--port` picks one, `--no-open` keeps the browser closed). There you add the repository and the agent's GitHub account in Settings, and the host checks them and starts. The state directory (by default `~/.superagent`) holds the database, the worker shims and the panel token; `--state-dir` moves it. The page the host serves carries the token, so there is no sign-in.
 
-**The standalone panel.** With the service running, this serves the new UI on its own, without the DSH sidebar:
+**Workers are confined.** Each agent process runs in the operating system's sandbox (Seatbelt on macOS, bubblewrap on Linux): it can read and write only its own ticket directory and the repository's git directory, and cannot read your home directory or touch the state directory. `--allow-read PATH` and `--allow-write PATH` open one more path, for a toolchain in your home directory. The host refuses to start an agent on a machine with no sandbox; `--sandbox off` runs agents as your own user instead, and says so at startup. The CLI's own sign-in stays readable, and the network is open, until [SEC-02](ISSUES.md#sec-02-long-lived-credentials-are-within-a-workers-reach) is done.
 
-```bash
-pnpm ui:dev
-```
-
-Then open http://localhost:5273. The dev server forwards the API to `http://127.0.0.1:3082` and adds the panel token itself, so the browser never holds it. Set `SUPERAGENT_API` or `SUPERAGENT_TOKEN_FILE` to point it elsewhere.
+**Developing the panel.** `pnpm ui:dev` serves the panel from source with hot reload on http://localhost:5273 and forwards the API to a running host (`SUPERAGENT_API`, `SUPERAGENT_TOKEN_FILE`).
 
 **Inside the DeepSeek Harness.** The original plugin still works, and still runs agents the DeepSeek way. To run it that way, ask a coding agent to follow [SETUP.md](SETUP.md). The code and commands still use the name `dsh-superagent`, and the management API needs the token described in [the deployment guide](docs/006-deployment.md).
 

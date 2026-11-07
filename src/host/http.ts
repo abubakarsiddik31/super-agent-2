@@ -11,6 +11,8 @@ export interface NodeHttp {
   readonly host: string
   readonly port: number
   mount(prefix: string, handler: HttpHandler): () => void
+  /** Serves every request no prefix claimed, such as the panel's own pages; returns the release. */
+  fallback(handler: HttpHandler): () => void
   /** Closes the server and waits for the open connections to end. */
   close(): Promise<void>
 }
@@ -35,14 +37,16 @@ export async function startNodeHttp(options: NodeHttpOptions = {}): Promise<Node
     throw new Error('The management server serves the loopback interface only')
   }
   const mounts: Mount[] = []
+  let rest: HttpHandler | undefined
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     // The longest matching prefix wins, so a mount under another mount's path is reached.
     const mount = [...mounts].sort((a, b) => b.prefix.length - a.prefix.length)
       .find(candidate => url.pathname === candidate.prefix || url.pathname.startsWith(`${candidate.prefix}/`))
-    if (!mount) { res.writeHead(404); res.end(); return }
+    const handler = mount?.handler ?? rest
+    if (!handler) { res.writeHead(404); res.end(); return }
     // The handler owns the request; a failure inside it is its own to report.
-    void Promise.resolve(mount.handler(req, res)).catch(() => { if (!res.headersSent) res.writeHead(500); res.end() })
+    void Promise.resolve(handler(req, res)).catch(() => { if (!res.headersSent) res.writeHead(500); res.end() })
   })
   const listening = new Promise<void>((resolve, reject) => {
     server.once('error', reject)
@@ -58,6 +62,10 @@ export async function startNodeHttp(options: NodeHttpOptions = {}): Promise<Node
       mounts.push({ prefix, handler })
       return () => { const index = mounts.indexOf(mounts.find(mount => mount.handler === handler && mount.prefix === prefix)!)
         if (index >= 0) mounts.splice(index, 1) }
+    },
+    fallback(handler) {
+      rest = handler
+      return () => { if (rest === handler) rest = undefined }
     },
     async close() {
       await new Promise<void>(resolve => { server.close(() => { resolve() }); server.closeAllConnections?.() })

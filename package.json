@@ -45,7 +45,7 @@
     "manifestVersion": 1
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && pnpm ui:build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",

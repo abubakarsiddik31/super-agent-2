@@ -44,7 +44,7 @@ it('keeps a refused Deployment change as a draft, and shows the settings read-on
   expect(text()).toContain(zh.deploymentReadOnly)
   server.form = undefined
   await remount()
-  expect(text()).toContain('这个 DSH 版本不提供配置表单')
+  expect(text()).toContain('这些值在 Superagent 启动时确定')
   expect(field<HTMLInputElement>(zh.deploymentPromptMaxChars)).toMatchObject({ disabled: true, value: '100000' })
   expect(all('button').some(button => button.textContent === '保存')).toBe(false)
 })
@@ -82,7 +82,7 @@ it('renders the Deployment page with the derived accounts in the Plugin Manager,
   expect(container.textContent).toBe('')
   server.form = fakeForm().form
   await render('page')
-  for (const fact of ['acme/widgets', '@agent-bot', 'Widgets Bot', '账号在 dsh-superagent 面板的来源设置里修改。']) expect(text()).toContain(fact)
+  for (const fact of ['acme/widgets', '@agent-bot', 'Widgets Bot', '账号在 Superagent 面板的来源设置里修改。']) expect(text()).toContain(fact)
   server.setup = { ...server.setup, problem: problemOf('repositoryUnset'), accounts: null }
   await render('page')
   expect(text()).toContain('部署检查未通过：GitHub 来源没有设置监听的仓库。')

@@ -9,6 +9,8 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { bubblewrapArgs, chooseSandbox, policyFor, SandboxUnavailable, seatbeltProfile } from '../src/sandbox/index.ts'
 import { seatbelt } from '../src/sandbox/seatbelt.ts'
+import { nodeSubprocess } from '../src/host/subprocess.ts'
+import { runTurn } from '../src/runner/cli/turn.ts'
 
 const policy = (overrides = {}) => ({ workspace: '/s/work/t1', stateDir: '/s', readOnlyInState: ['/s/worker-bin'], writable: [], readable: [], cliState: [], ...overrides })
 
@@ -143,4 +145,18 @@ describe.skipIf(platform() !== 'darwin' || !existsSync('/usr/bin/sandbox-exec'))
     const result = spawnSync(argv[0]!, argv.slice(1), { cwd: tree, encoding: 'utf8', env })
     expect(result.stdout.trim()).toBe('2')
   })
+
+  // The real CLI, signed in as the operator, asked to read the canary. Skipped where it is not installed or not signed in.
+  const CLAUDE = ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude'].find(path => existsSync(path))
+  it.skipIf(!CLAUDE)('runs the real Claude Code CLI confined: it works, and cannot read the canary', async () => {
+    const policyCli = policyFor({ workspace, stateDir: state, command: CLAUDE! })
+    const spec = { command: CLAUDE!, args: ['--dangerously-skip-permissions'], cwd: workspace, mcpConfig: '', noBuiltins: false, strictMcp: false, noCommands: false,
+      timeoutMs: 150_000, signal: new AbortController().signal, confine: (argv: readonly string[]) => seatbelt.wrap(argv, policyCli).argv,
+      prompt: `Run the shell command: cat ${join(root, 'canary')}. Then write the word done into a file named out2.txt in the current directory. Reply with what the cat printed.` }
+    const result = await runTurn(nodeSubprocess, spec)
+    // Not signed in: the CLI says so and does no work, so there is nothing to check.
+    if (JSON.stringify(result.events).includes('Not logged in')) return
+    expect(JSON.stringify(result.events)).not.toContain('HOME-CANARY')
+    expect(readFileSync(join(workspace, 'out2.txt'), 'utf8')).toContain('done')
+  }, 170_000)
 })

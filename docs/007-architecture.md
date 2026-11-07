@@ -363,6 +363,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/host/http.ts` | The management HTTP server over Node's `http`: it serves the loopback interface only, and a mounted prefix's handler owns each request |
 | `src/host/subprocess.ts` | The `Subprocess` over Node's `child_process`: the credential scrub a child starts from, the collected output of a stream, and the termination a signal starts |
 | `src/host/models.ts` | The `ModelInfo` of the standalone host: it checks that a configured route names a model and knows no provider of its own, because the CLI behind the runner chooses the model |
+| `src/host/panel.ts` | The panel's own pages, served by the standalone host from `desktop/dist` on the same address as the management API, with the panel token in the first page and a strict content security policy |
 | `src/host/runner.ts` | `EmptyRunner`, the runner of a host with no agent CLI behind it yet: every call that would need an agent fails with `NO_AGENT_CLI` |
 | `src/sandbox/port.ts` | The sandbox port: `SandboxPolicy`, what one confined process may touch, and `Sandbox`, which wraps a command line so the operating system enforces it |
 | `src/sandbox/seatbelt.ts` | The macOS sandbox: a Seatbelt profile that hides the home directory and the state directory and lets the process write only in its own workspace |
@@ -445,6 +446,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/delivery.spec.ts` | `AgentDelivery` |
 | `tests/retry-health.spec.ts`, `tests/role-models.spec.ts` | Model budget retries, and the models of the two roles |
 | `tests/runtime.spec.ts` | The whole application on a simulated DeepSeek Harness host, through tools and HTTP |
+| `tests/panel.spec.ts` | The panel served by the standalone host: the page with its token, the routes of the panel, caching, the security headers, a rebound host name, a path out of the directory, and the same address across an engine restart |
 | `tests/sandbox.spec.ts` | The worker sandbox: the choice of sandbox, the policy of one agent, the Seatbelt and bubblewrap profiles, and real confined commands on macOS that cannot read the home directory, reach the state directory, or write outside the workspace |
 | `tests/standalone.spec.ts` | The standalone host: the engine and the management server in one plain Node process, the same-origin and token checks over HTTP, and the credential scrub of a child process |
 | `tests/mcp.spec.ts` | The MCP server the engine serves: the handshake, the discover probe a Claude Code sends, a tool call, a tool failure and a released tool |
