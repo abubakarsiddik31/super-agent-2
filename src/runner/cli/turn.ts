@@ -45,6 +45,8 @@ export interface TurnSpec {
   readonly timeoutMs: number
   /** The signal that stops the turn. */
   readonly signal: AbortSignal
+  /** Wraps the command line so the process runs confined; the host's sandbox provides it. */
+  readonly confine?: (argv: readonly string[]) => readonly string[]
 }
 
 /** The refusal a router gets when the CLI reports a tool that is not ours. */
@@ -98,7 +100,8 @@ export function routerRefusal(reported: readonly string[]): string {
 
 /** Runs one turn of the CLI and reads the events it prints. */
 export async function runTurn(subprocess: Subprocess, spec: TurnSpec): Promise<TurnResult> {
-  const argv = [spec.command, ...spec.args, ...turnArgs(spec)]
+  const plain = [spec.command, ...spec.args, ...turnArgs(spec)]
+  const argv = spec.confine ? spec.confine(plain) : plain
   const handle = subprocess.spawn({ argv, cwd: spec.cwd, graceMs: 2000, signal: spec.signal,
     stdio: { stdin: 'ignore', stdout: { maxBytes: 8 << 20 }, stderr: { maxBytes: 1 << 20 } } })
   const timeout = setTimeout(() => { spec.signal.dispatchEvent(new Event('abort')) }, spec.timeoutMs)

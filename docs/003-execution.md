@@ -24,7 +24,7 @@ An `idle` Ticket has finished its turn without an outstanding question. A Trigge
 
 Each Ticket gets an Executor Session named `worker-<ticket id>` and a directory named after the Ticket's short name. Directories are created under the configured execution root, which defaults to `<stateDir>/work`.
 
-Executor Sessions run commands without approval as the operator's OS user. Their `dsh-superagent-worker` preset contains the tools needed for work and moves foreground shell commands to background jobs after 5 seconds. This lets a worker receive new messages at the next step instead of waiting for a long command to finish.
+Under the DeepSeek Harness, Executor Sessions run commands without approval as the operator's OS user. On the standalone host, each agent process runs in an operating-system sandbox (`src/sandbox/`): it reads and writes only its own Ticket directory and the repository's git directory, cannot read the operator's home directory or anything in the state directory but the worker shims and git configuration, and is refused at startup if the machine has no sandbox and `--sandbox off` was not given. Their `dsh-superagent-worker` preset contains the tools needed for work and moves foreground shell commands to background jobs after 5 seconds. This lets a worker receive new messages at the next step instead of waiting for a long command to finish.
 
 The main Session uses `dsh-superagent-router`, which has no shell, jobs or file tools, only the routing tools and skills. Sessions retain the preset selected at creation. Worker subagents use DeepSeek Harness's `standard` preset.
 

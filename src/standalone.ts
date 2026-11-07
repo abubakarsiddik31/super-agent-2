@@ -19,6 +19,7 @@ import { nodeSubprocess } from './host/subprocess.ts'
 import { ClaudeRunner, type CliConfig } from './runner/cli/claude.ts'
 import { startMcpServer } from './runner/cli/mcp.ts'
 import { definePorts, type AgentPorts, type TranscriptStore } from './runner/port.ts'
+import { chooseSandbox, policyFor, type SandboxExtras, type SandboxMode } from './sandbox/index.ts'
 import { startFeishu } from './sources/feishu.ts'
 import { startGithub } from './sources/github.ts'
 import type { SourceHost } from './sources/host.ts'
@@ -30,6 +31,13 @@ export interface StandaloneOptions {
   readonly port?: number
   /** The coding-agent CLI the agent side runs; without one, no agent can run. */
   readonly cli?: CliConfig
+  /**
+   * How agents are confined. `auto`, the default, uses the sandbox this machine has and refuses to start an agent side
+   * without one; `off` runs agents unconfined, as the operator's own user.
+   */
+  readonly sandbox?: SandboxMode
+  /** Paths the operator lets agents read or write beyond their own workspace. */
+  readonly sandboxExtras?: SandboxExtras
 }
 
 /** The default state directory: the same one the harness plugin used. */
@@ -49,7 +57,7 @@ export const standaloneMachine = (stateDir: string): Machine => ({
  * With a CLI configured, the runner is the one over that CLI, and every agent reaches the engine's tools through an MCP
  * server the engine serves. Without one, the runner has no agent to create and every ticket that needs one fails visibly.
  */
-export function standalonePorts(cli?: CliConfig): AgentPorts {
+export function standalonePorts(cli?: CliConfig, confinement?: { stateDir: string; mode?: SandboxMode; extras?: SandboxExtras }): AgentPorts {
   const transcripts: TranscriptStore = {
     flush: async () => { /* The CLI's own session files hold the transcript. */ },
     readUserMessages: async () => [],
@@ -59,7 +67,16 @@ export function standalonePorts(cli?: CliConfig): AgentPorts {
     warn: (format: string, ...args: unknown[]) => { console.warn(format, ...args) },
     error: (format: string, ...args: unknown[]) => { console.error(format, ...args) } }
   if (!cli) return definePorts({ runner: new EmptyRunner(), transcripts, models: nodeModels(), subprocess: nodeSubprocess, logger })
-  const runner = new ClaudeRunner({ cli, subprocess: nodeSubprocess, logger,
+  // Agents read text from strangers and run code they did not write, so the operating system confines them. A host that
+  // cannot confine them refuses to start rather than run them as the operator.
+  const sandbox = chooseSandbox(confinement?.mode)
+  if (sandbox) logger.info('dsh-superagent: agents run in the %s sandbox', sandbox.name)
+  else logger.warn('dsh-superagent: the sandbox is off; agents run as your own user and can read and change anything you can')
+  const confine = sandbox && confinement
+    ? (workspace: string, argv: readonly string[]) => sandbox.wrap(argv, policyFor({ workspace, stateDir: confinement.stateDir, command: cli.command,
+        ...confinement.extras ? { extras: confinement.extras } : {} })).argv
+    : undefined
+  const runner = new ClaudeRunner({ cli, subprocess: nodeSubprocess, logger, ...confine ? { confine } : {},
     // The CLI reaches the engine's tools through an MCP server the engine serves, one per agent. The server offers the
     // tools the engine bound on that agent, and a tool the engine released stops answering.
     mcp: async agent => {
@@ -97,7 +114,7 @@ export async function startStandalone(options: StandaloneOptions = {}): Promise<
     for (const stop of sources) await stop()
     sources = []
     host = await startNodeHost({ stateDir, limits: machine, ...options.port === undefined ? {} : { port: options.port }, restart })
-    runtime = new Runtime(host, standalonePorts(options.cli), machine, restart)
+    runtime = new Runtime(host, standalonePorts(options.cli, { stateDir, ...options.sandbox ? { mode: options.sandbox } : {}, ...options.sandboxExtras ? { extras: options.sandboxExtras } : {} }), machine, restart)
     // The Sources reach the engine through the `SourceHost` interface, which the runtime implements.
     const sourceHost = runtime as unknown as SourceHost
     await runtime.ready

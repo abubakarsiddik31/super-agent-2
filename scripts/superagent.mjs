@@ -2,7 +2,7 @@
 /**
  * The standalone host: the engine, the management API and the Sources in one plain Node process, with no DeepSeek software.
  *
- * Usage: `superagent [--state-dir DIR] [--port N] [--cli COMMAND] [--cli-model MODEL]`
+ * Usage: `superagent [--state-dir DIR] [--port N] [--cli COMMAND] [--cli-model MODEL] [--sandbox auto|seatbelt|bubblewrap|off] [--allow-read PATH] [--allow-write PATH]`
  *
  * The state directory holds the database, the locks, the worker shims and the panel token. The management API listens on the
  * loopback interface; the panel token in the state directory authorizes it.
@@ -18,8 +18,11 @@ function options(argv) {
     else if (argument === '--port') values.port = Number(argv[++index])
     else if (argument === '--cli') values.cli = argv[++index]
     else if (argument === '--cli-model') values.cliModel = argv[++index]
+    else if (argument === '--sandbox') values.sandbox = argv[++index]
+    else if (argument === '--allow-read') (values.readable ??= []).push(argv[++index])
+    else if (argument === '--allow-write') (values.writable ??= []).push(argv[++index])
     else if (argument === '--help' || argument === '-h') {
-      console.log('Usage: superagent [--state-dir DIR] [--port N] [--cli COMMAND] [--cli-model MODEL]')
+      console.log('Usage: superagent [--state-dir DIR] [--port N] [--cli COMMAND] [--cli-model MODEL] [--sandbox auto|seatbelt|bubblewrap|off] [--allow-read PATH] [--allow-write PATH]')
       process.exit(0)
     } else throw new Error(`Unknown option: ${argument}`)
   }
@@ -34,6 +37,8 @@ const cliModel = values.cliModel ?? process.env.SUPERAGENT_CLI_MODEL
 const host = await startStandalone({
   ...stateDir ? { stateDir } : {},
   ...port === undefined ? {} : { port },
+  ...values.sandbox ?? process.env.SUPERAGENT_SANDBOX ? { sandbox: values.sandbox ?? process.env.SUPERAGENT_SANDBOX } : {},
+  ...values.readable || values.writable ? { sandboxExtras: { readable: values.readable ?? [], writable: values.writable ?? [] } } : {},
   ...cli ? { cli: { command: cli, ...cliModel ? { model: cliModel } : {} } } : {},
 })
 console.log(`superagent is listening on http://${host.host.http.host}:${host.host.http.port}`)

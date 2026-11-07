@@ -364,6 +364,10 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/host/subprocess.ts` | The `Subprocess` over Node's `child_process`: the credential scrub a child starts from, the collected output of a stream, and the termination a signal starts |
 | `src/host/models.ts` | The `ModelInfo` of the standalone host: it checks that a configured route names a model and knows no provider of its own, because the CLI behind the runner chooses the model |
 | `src/host/runner.ts` | `EmptyRunner`, the runner of a host with no agent CLI behind it yet: every call that would need an agent fails with `NO_AGENT_CLI` |
+| `src/sandbox/port.ts` | The sandbox port: `SandboxPolicy`, what one confined process may touch, and `Sandbox`, which wraps a command line so the operating system enforces it |
+| `src/sandbox/seatbelt.ts` | The macOS sandbox: a Seatbelt profile that hides the home directory and the state directory and lets the process write only in its own workspace |
+| `src/sandbox/bubblewrap.ts` | The Linux sandbox: a `bwrap` command line with a read-only system, an empty home and state directory, and the workspace bound back in |
+| `src/sandbox/index.ts` | `chooseSandbox`, which picks the sandbox of this machine and refuses to run agents unconfined unless the operator says `off`, and `policyFor`, the policy of one agent |
 | `src/runner/cli/mcp.ts` | The MCP server that exposes the engine's tools to a CLI: it runs in the engine's process on the loopback interface, it answers the discover probe a Claude Code sends before it initializes, and a tool the engine released stops answering |
 | `src/runner/cli/turn.ts` | One turn of a CLI: the arguments it runs with, the events it prints, and the router's tool check |
 | `src/runner/cli/claude.ts` | `ClaudeRunner`, the `AgentRunner` over the `claude` CLI, and `CliBinder`, what the engine installs on one agent |
@@ -441,6 +445,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/delivery.spec.ts` | `AgentDelivery` |
 | `tests/retry-health.spec.ts`, `tests/role-models.spec.ts` | Model budget retries, and the models of the two roles |
 | `tests/runtime.spec.ts` | The whole application on a simulated DeepSeek Harness host, through tools and HTTP |
+| `tests/sandbox.spec.ts` | The worker sandbox: the choice of sandbox, the policy of one agent, the Seatbelt and bubblewrap profiles, and real confined commands on macOS that cannot read the home directory, reach the state directory, or write outside the workspace |
 | `tests/standalone.spec.ts` | The standalone host: the engine and the management server in one plain Node process, the same-origin and token checks over HTTP, and the credential scrub of a child process |
 | `tests/mcp.spec.ts` | The MCP server the engine serves: the handshake, the discover probe a Claude Code sends, a tool call, a tool failure and a released tool |
 | `tests/cli-runner.spec.ts` | The arguments one turn of the CLI runs with, and the router's tool check |

@@ -18,9 +18,13 @@ Super-agent listens to GitHub and chat, turns requests from people you authorize
 > **This is a community fork of [deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype), the reference code for DeepSeek's Super-agent design.** It's independent and not affiliated with or endorsed by DeepSeek. "2.0" is our name for this effort, not an official successor.
 
 > [!WARNING]
-> **Don't run this on a repository or machine you care about yet.** Workers still run unconfined as your OS user ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)). We have blocked several paths at the host, but this is not secure until the P0 items below are closed.
+> **Don't run this on a repository or machine you care about yet.** On the standalone host workers are now confined to their ticket directory ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)), but they still reach the network and the CLI's own sign-in, and the other P0 items below are open. Inside the DeepSeek Harness they still run unconfined.
 
 ## Updates
+
+**8 November 2026**
+
+- **Workers run in a sandbox.** On the standalone host every agent process, and everything it starts, runs under the operating system's own confinement: Seatbelt on macOS, bubblewrap on Linux. It cannot read your home directory, cannot touch the state directory (the database, the panel token, other tickets), and can write only in its own ticket directory. The host refuses to start an agent without a sandbox unless you pass `--sandbox off`. Tests run real commands under it, and the real Claude Code CLI works confined.
 
 **2 November 2026**
 
@@ -73,7 +77,7 @@ The router reads text from strangers, so it's the role to protect. The host refu
 | Standalone panel UI | Done; needs a running service |
 | Plain Node host that replaces DSH | Done; runs the panel, the Sources and the agent CLI |
 | CLI runners: Claude Code first, then Codex, Gemini CLI, OpenCode and a command template | Claude Code done; the others planned |
-| Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Planned |
+| Sandbox for workers ([SEC-01](ISSUES.md#sec-01-workers-run-unconfined-as-the-operators-os-user)) | Done on macOS and Linux for the standalone host; no container or Windows yet |
 | Tauri desktop app with a setup wizard | Later |
 
 ## Why this exists
