@@ -1093,6 +1093,20 @@ it('runs the prepare command once for a new ticket, under the execution root wit
   expect(waitsForPerson(runtime.store.tickets.get(failed.ticket.id)!)).toBe(true)
 })
 
+it('redacts a credential a failed prepare command printed, before it reaches the report or the relay', async () => {
+  runtime.store.saveSettings({ ...runtime.store.settings(), executor: { ...runtime.store.settings().executor, prepare: 'exit 4' } })
+  answers['sh -c exit 4'] = new Error('fatal: could not read password for ghp_FAKECANARYTOKEN1234567890abcd')
+  const { ticket } = await acceptedTicket(feishu('9', '@bot 修一下标题'))
+  await runtime.idle()
+  const report = runtime.store.tickets.get(ticket.id)!.assignments.at(-1)!.report!
+  expect(report.summary).toContain('The prepare command failed: fatal: could not read password for')
+  expect(report.summary).not.toContain('ghp_FAKECANARY')
+  // The relay to the main Session carries the same redacted text.
+  const relayed = deliveries.mock.calls.map(([call]) => call.text).filter(text => text.includes('"worker_report"'))
+  expect(relayed.length).toBeGreaterThan(0)
+  expect(relayed.every(text => !text.includes('ghp_FAKECANARY'))).toBe(true)
+})
+
 it('counts a ticket whose directory the host prepared before prepare commands existed as prepared', async () => {
   const { ticket, sessionId } = await acceptedTicket()
   await runTool(sessionId, 'orchestrator_report', { state: 'failed', summary: 'offline' })

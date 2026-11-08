@@ -372,7 +372,7 @@ it('relays a worker\'s report with its ticket card and the start of its summary,
   const { ticket, trigger, sessionId } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))
   await h.runTool(sessionId, 'orchestrator_report', { state: 'progress', summary: 'Needs a decision.', human_action: 'Desktop too?' })
   await h.runtime.idle()
-  expect(relaysOf('worker_attention').at(-1)).toEqual({ kind: 'worker_attention', state: 'progress', read: `ticket/${ticket.id}/result`,
+  expect(relaysOf('worker_attention').at(-1)).toEqual({ kind: 'worker_attention', trust: 'untrusted', state: 'progress', read: `ticket/${ticket.id}/result`,
     ticket: expect.objectContaining({ ticket_id: ticket.id, state: 'person/answer', attention: expect.objectContaining({ question: 'Desktop too?' }) }) })
   const summary = 'Done. ' + 'Evidence. '.repeat(100)
   await h.runTool(sessionId, 'orchestrator_report', { state: 'ready', summary, human_action: null })
@@ -384,6 +384,19 @@ it('relays a worker\'s report with its ticket card and the start of its summary,
   expect(report.ticket).not.toHaveProperty('preview')
   // The end of the ticket, which the ready report brought, comes with its card.
   expect(notices().at(-1)).toMatchObject({ ticket_ended: { ticket_id: ticket.id, state: 'completed' } })
+})
+
+it('marks a worker report as untrusted, and refuses one longer than the router may read', async () => {
+  const { ticket, sessionId } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))
+  await h.runTool(sessionId, 'orchestrator_report', { state: 'blocked', summary: 'Waiting on the API key.' })
+  await h.runtime.idle()
+  expect(relaysOf('worker_report').at(-1)).toMatchObject({ trust: 'untrusted' })
+  // A report that would fill the router's context is refused, with the limit named, and records nothing.
+  await expect(h.runTool(sessionId, 'orchestrator_report', { state: 'progress', summary: 'x'.repeat(4001) }))
+    .rejects.toThrow(/4000/)
+  await h.runtime.idle()
+  const stored = h.runtime.store.tickets.get(ticket.id)!.assignments.at(-1)!.report!
+  expect(stored.summary).toBe('Waiting on the API key.')
 })
 
 it('tells the main Session of the settings, requeues and unsubscriptions others made, never of its own', async () => {
