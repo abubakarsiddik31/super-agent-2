@@ -1,0 +1,5 @@
+# pnpm reads its settings from this file, not from the `pnpm` field of package.json.
+# The DeepSeek Harness packages pin zod exactly, and zod below 4.6.6 can exhaust memory while validating an
+# oversized constrained collection (GHSA-mrhx-c7xc-m3w5). Every zod in the tree is held to the patched version.
+overrides:
+  zod: 4.6.7

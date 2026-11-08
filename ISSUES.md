@@ -361,7 +361,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** a model or a tool argument carrying an oversized constrained collection can exhaust the host's memory. The host validates every tool argument with zod, so the validator is on the path of untrusted input.
 - **Fix:** raise zod to 4.6.6 or later (and the MCP SDK's copy), then let CI's blocking critical gate and its reported high gate show the result.
 - **Acceptance:** `pnpm audit --prod --audit-level high` is clean, and the full suite still passes.
-- **Size:** S. **Depends on:** none. **Status:** Confirmed-by-reading (from the audit that TEST-02 added).
+- **Size:** S. **Depends on:** none. **Status:** Done (security/pkg-04-zod-advisory): `zod` is 4.6.7, the patched version, and the MCP SDK's copy resolves to the same one. The DeepSeek Harness packages pin zod exactly and would have kept the old one in the development tree, so `pnpm-workspace.yaml` holds every zod in the tree to 4.6.7. `pnpm audit --prod --audit-level high` is clean, and so is the whole tree of zod: the advisories that remain are in the test tooling (`undici` under `jsdom`, `source-map-js`) and are dev-only. The full suite passes.
 
 ---
 
