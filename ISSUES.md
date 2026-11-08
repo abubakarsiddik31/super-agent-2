@@ -210,7 +210,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** the security behavior from WIP-1 to WIP-6 can regress without anyone noticing.
 - **Fix:** add CI that runs `pnpm check`, a dependency audit and the attack tests, and fails on any regression.
 - **Acceptance:** CI runs on pull requests, and a deliberately reverted guard fails it.
-- **Size:** S. **Depends on:** the repo being public or on GitHub. **Status:** Confirmed-by-reading.
+- **Size:** S. **Depends on:** the repo being public or on GitHub. **Status:** Done (ci/test-02): `.github/workflows/ci.yml` runs `pnpm check`, the attack chain under its own name, and a production audit; a macOS job runs the sandbox spec. A critical advisory fails the build, while high and moderate ones are reported because they sit in transitive packages (see [PKG-04](#pkg-04-a-high-advisory-sits-in-a-production-dependency)).
 
 ## PKG-01: Rebrand as Super-agent 2.0 without implying DeepSeek's involvement
 - **Evidence:** `package.json:2` (`dsh-superagent`), `package.json:3` (author is the DeepSeek Harness team), `README.md:3` and `:7`, `LICENSE:3`.
@@ -355,6 +355,13 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Fix:** isolate the harness behind one adapter, pin exact versions, and cover it with TEST-01.
 - **Acceptance:** all harness calls go through the adapter, and casts in other modules are gone.
 - **Size:** M. **Depends on:** TEST-01. **Status:** Confirmed-by-reading.
+
+## PKG-04: A high advisory sits in a production dependency
+- **Evidence:** `pnpm audit --prod` reports GHSA-mrhx-c7xc-m3w5 (high): zod below 4.6.6 can exhaust memory while validating oversized constrained collections. `package.json` pins `zod` to 4.4.3, directly and through `@modelcontextprotocol/sdk`.
+- **Failure:** a model or a tool argument carrying an oversized constrained collection can exhaust the host's memory. The host validates every tool argument with zod, so the validator is on the path of untrusted input.
+- **Fix:** raise zod to 4.6.6 or later (and the MCP SDK's copy), then let CI's blocking critical gate and its reported high gate show the result.
+- **Acceptance:** `pnpm audit --prod --audit-level high` is clean, and the full suite still passes.
+- **Size:** S. **Depends on:** none. **Status:** Confirmed-by-reading (from the audit that TEST-02 added).
 
 ---
 
