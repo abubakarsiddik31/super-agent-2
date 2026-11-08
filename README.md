@@ -105,7 +105,7 @@ Prompts can ask a model to behave, but only the host can enforce it. We hold our
 | | |
 |---|---|
 | **Fixed at the host** | 5 weaknesses in the attack path, covered by [tests](tests/attack-chain.spec.ts) |
-| **Open** | [48 items](ISSUES.md): 5 P0, 12 P1, 19 P2, 12 P3 |
+| **Open** | [47 items](ISSUES.md): 5 P0, 12 P1, 18 P2, 12 P3 |
 | **Tested with** | The real gate, tools and HTTP routes on a fake harness with no model |
 | **Standalone** | The host, the panel and the Claude Code runner run as one product: `pnpm start`. The other CLIs and the desktop app are not built yet ([roadmap](#roadmap)) |
 | **Not yet tested** | The real harness, or any real model following an injected comment ([SEC-04](ISSUES.md#sec-04-prove-or-disprove-the-attack-end-to-end)) |
