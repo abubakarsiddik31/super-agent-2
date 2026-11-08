@@ -147,7 +147,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** if the router is down, overloaded or misled, the requester never learns the work failed. The ticket shows as failed only in the panel.
 - **Fix:** have the host send a templated message on `failed` and on launch failures, using the existing outbox and an idempotent ID. The router may add detail afterwards.
 - **Acceptance:** a test with no router response still sees the failure message once, and a restart doesn't resend it.
-- **Size:** S. **Depends on:** none. **Status:** Confirmed-by-reading.
+- **Size:** S. **Depends on:** none. **Status:** Done (fix/com-02-failure-notice): `Replies.failure` queues a fixed notice to the conversation the ticket started in, in the language of the request, under `key('failure', ticketId, summary)`. `DshExecutor.failed` calls it for every failure and launch failure, so it no longer waits on the main Session. `tests/runtime.spec.ts` covers the notice and its survival of a restart.
 
 ## COM-03: Requests the host refuses get silence
 - **Evidence:** `docs/006-deployment.md:274` lists "Nothing happens after a mention" as a troubleshooting case. `src/policy.ts:210` records refusal reasons only internally. `prompts/admission.md:23` says to ignore quietly, which is right for unaddressed messages only.

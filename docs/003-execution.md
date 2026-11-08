@@ -129,6 +129,8 @@ Its tools stay available, so a person can continue in the Session directly.
 
 A launch that failed is not tried again on its own.
 
+The host queues a fixed notice to the conversation the Ticket started in, once per failure, in the language of the request: it says the request failed, that nothing was changed, and that a person can retry it from the panel. It does not wait for the main Session to relay the report, so a requester hears of the failure even when the main Session is down or overloaded. The id is derived from the Ticket and the failure, so a restart does not send it again.
+
 A person's message, a later Report that is neither `blocked` nor `failed`, or a retry ends the hold.
 
 It is worked out from the stored Reports and Inputs, so a restart keeps it.
