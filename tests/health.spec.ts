@@ -60,3 +60,13 @@ it('reports a notice the main Session did not receive three times, until one rea
   // The waiting pause notice was updated in place by the resume value and injected once.
   expect(inject).toHaveBeenCalledOnce()
 })
+
+it('refuses a burst at intake, keeps the model work under the limit, and reports the count in health', async () => {
+  // A thousand addressed messages in one window: the global limit takes in 200, and the rest reach no model.
+  for (let id = 0; id < 1000; id++) h.runtime.receive(feishu(String(id), `@bot 修一下回归 ${id}`))
+  await h.runtime.idle()
+  await h.runtime.pump()
+  expect(h.runtime.health.intake).toMatchObject({ state: 'error', detail: expect.stringContaining('refused by the intake rate limit') })
+  expect(h.candidates().length).toBeGreaterThan(0)
+  expect(h.candidates().length).toBeLessThanOrEqual(200)
+})

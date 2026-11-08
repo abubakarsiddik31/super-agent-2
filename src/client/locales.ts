@@ -594,6 +594,7 @@ const TEXT = {
   'reason.noRuleMatched': ['没有启用的准入规则匹配', 'No enabled admission rule matched'],
   'reason.ignoredFromCard': ['仅凭候选卡片忽略，未经规则研判', 'Ignored from its card, without a rule assessment'],
   'reason.observed': ['观察模式：本会接单（{text}）', 'Observe mode: would accept ({text})'],
+  'reason.rateLimited': ['触发过于频繁，已被限流（{limit}）', 'Rate limited: the {limit} limit refused it'],
   'reason.explicitRouted': ['名单里的人明确请求，由主 Session 接单', 'Explicit request from someone on the list, accepted by the main Session'],
   'reason.legacyImport': ['从旧版工单记录导入', 'Imported from a legacy Ticket record'],
   'reason.channelGone': ['对话已无法接收消息', 'The conversation can no longer receive messages'],

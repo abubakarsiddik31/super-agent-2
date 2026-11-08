@@ -9,10 +9,10 @@ export function storeReads(db: DatabaseSync) {
   /** Newest first by arrival (`rowid`) order rather than trigger timestamp. */
   recentTriggers: (offset = 0, limit = 50): Trigger[] => db.prepare('SELECT value FROM trigger ORDER BY rowid DESC LIMIT ? OFFSET ?').all(limit, offset).map(row => JSON.parse(String(row.value)) as Trigger),
   /** Per-source trigger counts since `since`, plus the latest arrival timestamp across all time. */
-  triggerStats: (since: string): Record<string, { received: number; filtered: number; lastAt: string }> => {
-    const result: Record<string, { received: number; filtered: number; lastAt: string }> = {}
-    for (const row of db.prepare("SELECT json_extract(t.value, '$.source') AS source, MAX(t.at) AS last, SUM(t.at >= ?) AS received, SUM(t.at >= ? AND json_extract(d.value, '$.filtered') IS NOT NULL) AS filtered FROM trigger t LEFT JOIN disposition d ON d.id = t.id GROUP BY source").all(since, since))
-      result[String(row.source)] = { received: Number(row.received ?? 0), filtered: Number(row.filtered ?? 0), lastAt: String(row.last ?? '') }
+  triggerStats: (since: string): Record<string, { received: number; filtered: number; limited: number; lastAt: string }> => {
+    const result: Record<string, { received: number; filtered: number; limited: number; lastAt: string }> = {}
+    for (const row of db.prepare("SELECT json_extract(t.value, '$.source') AS source, MAX(t.at) AS last, SUM(t.at >= ?) AS received, SUM(t.at >= ? AND json_extract(d.value, '$.filtered') IS NOT NULL) AS filtered, SUM(json_extract(d.value, '$.at') >= ? AND json_extract(d.value, '$.filtered.code') = 'rateLimited') AS limited FROM trigger t LEFT JOIN disposition d ON d.id = t.id GROUP BY source").all(since, since, since))
+      result[String(row.source)] = { received: Number(row.received ?? 0), filtered: Number(row.filtered ?? 0), limited: Number(row.limited ?? 0), lastAt: String(row.last ?? '') }
     return result
   },
   /**

@@ -104,7 +104,7 @@ it('counts triggers per Source and lists them newest first, optionally only the 
   store.triggers.save(trigger('dropped', 'feishu', '2026-09-23T01:00:00Z'))
   store.triggers.saveDisposition('dropped', { filtered: { code: 'chat_not_allowed' }, fanout: [], at: '' })
   store.triggers.save(trigger('gh', 'github', '2026-09-22T00:00:00Z'))
-  expect(store.read.triggerStats('2026-09-22T12:00:00Z')).toEqual({ feishu: { received: 2, filtered: 1, lastAt: '2026-09-23T01:00:00Z' }, github: { received: 0, filtered: 0, lastAt: '2026-09-22T00:00:00Z' } })
+  expect(store.read.triggerStats('2026-09-22T12:00:00Z')).toEqual({ feishu: { received: 2, filtered: 1, limited: 0, lastAt: '2026-09-23T01:00:00Z' }, github: { received: 0, filtered: 0, limited: 0, lastAt: '2026-09-22T00:00:00Z' } })
   expect(store.read.triggers({ source: 'feishu' }, 0, 2)).toEqual({ items: [expect.objectContaining({ id: 'dropped' }), expect.objectContaining({ id: 'kept' })], more: true })
   expect(store.read.triggers({ filtered: true }).items.map(item => item.id)).toEqual(['dropped'])
   store.close()

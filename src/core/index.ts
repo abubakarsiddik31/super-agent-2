@@ -6,5 +6,6 @@ export { Engine, type EngineForExecutor, type EngineForMainSession, type EngineF
 export { UserError, USER_ERRORS, type UserErrorCode } from './errors.ts'
 export { REASONS, reasonText, said, type Reason, type ReasonCode } from './reasons.ts'
 export { MemoryRepositories } from './memory.ts'
+export { INTAKE_GLOBAL, INTAKE_PER_SENDER, INTAKE_PER_THREAD, INTAKE_WINDOW_MS, intakeLimits, type IntakeLimit, type IntakeLimits } from './rate-limit.ts'
 export { canRetry, ticketStage, type TicketStage } from './stage.ts'
 export { key } from './ids.ts'

@@ -20,6 +20,10 @@ A `person` stage means the Ticket cannot continue without human input. A new hum
 
 An `idle` Ticket has finished its turn without an outstanding question. A Trigger on a subscribed Thread can continue it.
 
+## Intake rate limits
+
+Before any model sees a Trigger, Intake checks the host's rate limits: 20 per sender, 60 per Thread and 200 in total per minute (`src/core/rate-limit.ts`). A Trigger over a limit is stored with a `rateLimited` disposition naming the limit, and reaches neither Eval nor a worker, so a burst cannot spend the router's turns or wake Tickets without bound. The counts appear in the overview's flow and in the `intake` health entry, which reports an error for an hour after the last refusal. A sender's limit counts only messages the Source listens to: one its scope filter drops costs nothing.
+
 ## The Executor
 
 Each Ticket gets an Executor Session named `worker-<ticket id>` and a directory named after the Ticket's short name. Directories are created under the configured execution root, which defaults to `<stateDir>/work`.
