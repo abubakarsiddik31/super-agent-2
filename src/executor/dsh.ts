@@ -133,7 +133,9 @@ const RESUMED = 'This ticket ended earlier and the message that follows, on its 
   + 'for another ticket, hand it back with orchestrator_trigger_handback and report dropped; if it needs nothing, such as thanks, '
   + 'report dropped without a message. Report ready when the follow-up is done. Do not repeat completed work.'
 const RETRIED = 'A person retried this ticket. Continue the assignment from the current worktree, git history and PR state.'
-/** Formats a policy-change input for the worker; inputs recorded before `effect` existed fall back to a general notice. */
+/** Formats a policy-change input for the worker; inputs recorded before `effect` existed fall back to a general notice.
+ * The host stops a ticket whose requester lost access instead of sending it one, so this wind-down wording only reaches a
+ * ticket that was told before the host stopped such tickets. */
 function policyMessage(effect?: PolicyEffect): string {
   if (!effect) return 'Policy change: the access or admission rules changed. Check that the remaining work stays within the assignment.'
   return ['Policy change:',

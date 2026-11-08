@@ -408,7 +408,7 @@ it('stops a ticket on a person\'s instruction for good, and resumes an ended one
   expect(resumed.inputs.map(input => input.kind)).toContain('resumed')
 })
 
-it('tells live workers about policy changes instead of revoking them and restarts in-flight assessments', async () => {
+it('tells live workers about policy changes, stops a ticket whose requester lost access, and restarts in-flight assessments', async () => {
   const { ticket, sessionId } = await acceptedTicket()
   const pending = feishu('8', '新观察', { mentions: [], sender_id: MEMBER, root_id: undefined })
   await receive(pending)
@@ -421,15 +421,14 @@ it('tells live workers about policy changes instead of revoking them and restart
   // The rules changed, but not as they bear on this explicit ticket, whose requester is still allowed: its worker is not woken.
   expect(runtime.store.tickets.get(ticket.id)!.inputs).toEqual([])
   expect(relays(sessionId)).toEqual([])
-  // Its requester comes off the allowed list: the worker is told so, inline, and the ticket goes on.
+  // Its requester comes off the allowed list: the Mandate is revoked, so the ticket stops instead of winding down.
   const current = runtime.store.settings().policy
   await runtime.settings.save('policy', { ...current, sources: { ...current.sources, feishu: { ...current.sources.feishu!, allowed: [] } } },
     runtime.store.blockRevision('policy'), 'panel')
   await runtime.idle()
-  expect(runtime.store.tickets.get(ticket.id)!.inputs).toEqual([expect.objectContaining({ kind: 'policy-changed',
-    effect: { requesterAllowed: false, requester: { source: 'feishu', id: MEMBER } } })])
-  expect(runtime.store.tickets.get(ticket.id)!.ended).toBeUndefined()
-  expect(relays(sessionId)).toEqual([{ text: expect.stringContaining('may no longer start work') }])
+  expect(runtime.store.tickets.get(ticket.id)!.ended).toEqual({ at: expect.any(String), by: 'human', outcome: 'stopped', reason: 'revoked' })
+  expect(runtime.store.tickets.get(ticket.id)!.inputs).toEqual([])
+  expect(agents.get(sessionId)!.cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: false })
   expect(runtime.store.decisions.byThread(`feishu:${CHAT}:om_8`)[0]).toMatchObject({ kind: 'unavailable', reason: [{ code: 'policyChanged' }] })
   expect(relays(runtime.masterId).filter(item => item.kind === 'candidate' && item.trigger_id === pending.id)).toHaveLength(1)
 })

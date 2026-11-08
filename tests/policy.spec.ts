@@ -218,7 +218,9 @@ describe('revalidate and version', () => {
     expect(policy.revalidate(inferred)).toBe(true)
     expect(setup({ ...base, eval: { ...base.eval, mode: 'observe' } }).policy.revalidate(inferred)).toBe(false)
     expect(setup({ ...base, policy: { ...base.policy, rules: base.policy.rules.map(rule => ({ ...rule, enabled: rule.id !== 'copy' })) } }).policy.revalidate(inferred)).toBe(false)
-    expect(setup(nobody).policy.revalidate({ ...mandate, basis: { via: 'followup' } })).toBe(true)
+    // A follow-up Mandate does not outlive the access that created it: a sender taken off the list loses theirs.
+    expect(policy.revalidate({ ...mandate, basis: { via: 'followup' } })).toBe(true)
+    expect(setup(nobody).policy.revalidate({ ...mandate, basis: { via: 'followup' } })).toBe(false)
   })
   it('changes the Policy version for rules, accept mode and the Sources\' parts, not for pause, concurrency, models or Source configuration', () => {
     const version = setup().version
@@ -376,7 +378,7 @@ describe('policy effects', () => {
     expect(policyEffects([bot], listed, base, scope).get('t4')).toEqual({ requesterAllowed: false, requester: { source: 'feishu', id: 'cli_ci_bot' } })
   })
   it('keeps an inferred follow-up\'s Mandate only while candidates become work and its rules are on, as any inferred one', () => {
-    const followup = ticket('t5', { strength: 'inferred', actor: { source: 'feishu', id: 'ou_guest' }, scope: '',
+    const followup = ticket('t5', { strength: 'inferred', actor: { source: 'feishu', id: MEMBER }, scope: '',
       basis: { via: 'followup', source: 'feishu', scope: { chatId: 'oc_team' }, rules: ['copy'] } })
     const mode = (value: 'auto' | 'observe' | 'off') => ({ ...base, eval: { ...base.eval, mode: value } })
     const disabled = { ...mode('auto'), policy: { ...base.policy, rules: base.policy.rules.map(rule => ({ ...rule, enabled: rule.id !== 'copy' })) } }
@@ -384,8 +386,12 @@ describe('policy effects', () => {
     for (const settings of [mode('observe'), mode('off'), disabled]) expect(settingsPolicy(settings, scope()).revalidate(followup.mandate)).toBe(false)
     expect(policyEffects([followup], mode('auto'), mode('observe'), scope).get('t5')).toEqual({ proactive: false })
     // An explicit follow-up holds whatever the mode.
-    const explicitFollowup = ticket('t6', { ...followup.mandate, strength: 'explicit', actor: { source: 'feishu', id: 'ou_alice' } })
+    const explicitFollowup = ticket('t6', { ...followup.mandate, strength: 'explicit', actor: { source: 'feishu', id: MEMBER } })
     expect(settingsPolicy(mode('off'), scope()).revalidate(explicitFollowup.mandate)).toBe(true)
+    // A sender taken off the list loses the follow-up Mandate they hold, explicit or inferred.
+    const nobody = { ...base, policy: { ...base.policy, sources: { ...base.policy.sources, feishu: { ...base.policy.sources.feishu!, allowed: [] } } } }
+    expect(settingsPolicy(nobody, scope()).revalidate(explicitFollowup.mandate)).toBe(false)
+    expect(settingsPolicy(nobody, scope()).revalidate(followup.mandate)).toBe(false)
   })
   it('revokes an inferred ticket whose cell weakens or whose candidates no longer become work, and reports a deleted rule disabled', () => {
     const chat = 'oc_1111111111111111111111111111'

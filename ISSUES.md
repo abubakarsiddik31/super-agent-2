@@ -112,7 +112,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** the operator removes a compromised account from the allowlist. Its running Ticket keeps going under a prompt that asks it to wind down, and a follow-up Mandate can still resume later.
 - **Fix:** revalidate on every Policy change. Stop or pause tickets whose requester lost access. Check the sender in the follow-up branch of `revalidate`.
 - **Acceptance:** a policy test removes the requester and shows that a live ticket stops and an ended one can't resume.
-- **Size:** S. **Depends on:** coordinate with WIP-3, which edits this file. **Status:** Confirmed-by-reading.
+- **Size:** S. **Depends on:** coordinate with WIP-3, which edits this file. **Status:** Done (security/sec-08-revoke-access): `revalidate` checks the sender in the follow-up branch, so a follow-up Mandate does not outlive the access that created it. `policyEffects` marks the Ticket whose requester lost access, and `policyChanged` stops it the way a person's stop does, instead of telling it to wind down: its Mandate is revoked, its worker stops, and work requested there needs a new accept. `tests/followups.spec.ts` shows a ticket a follow-up created not resuming for a sender taken off the list, `tests/policy.spec.ts` the Mandate failing revalidation, `tests/runtime.spec.ts` the live ticket stopping, and `tests/core-engine.spec.ts` the worker stopping with it.
 
 ## SEC-09: Merge and branch safety rely on prompts and operator setup
 - **Evidence:** `docs/003-execution.md:84` says the host has no merge logic. `docs/003-execution.md:90` leaves enforcement to branch protection. `prompts/team/delivery.md:10-13` hold the rules. `src/deployment.ts:104` doesn't check protection.
