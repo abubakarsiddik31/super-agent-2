@@ -224,7 +224,11 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
       if (current && !current.listened) return false
       const rulesOn = (rules: string[] | undefined) => (rules ?? []).every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id))
       // Explicit follow-ups remain valid; inferred follow-ups require auto mode and enabled matched rules.
-      if (basis.via === 'followup') return mandate.strength === 'explicit' || (mode === 'auto' && rulesOn(basis.rules))
+      if (basis.via === 'followup') {
+        // A follow-up Mandate does not outlive the access that created it: a sender taken off the allowed list loses theirs.
+        if (!allowedSender(settings, mandate.actor)) return false
+        return mandate.strength === 'explicit' || (mode === 'auto' && rulesOn(basis.rules))
+      }
       // A bot's candidate holds only while the bot remains on its Source's bot list and passes the observation checks below.
       if (basis.via === 'bot' && !listedBot(settings, mandate.actor)) return false
       // An admission-table Mandate holds while the sender's current cell still grants at least the original strength.

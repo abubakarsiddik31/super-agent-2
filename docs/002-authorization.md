@@ -113,10 +113,11 @@ Rules, accept mode and each Source's Policy form the Policy version. Every Manda
 A version change discards running Evals and queues their Triggers again. It also sends a policy-changed Input to each affected live Ticket. The Input explains whether:
 
 - a matched rule changed, including its new text, or no longer applies;
-- the requester may no longer start work; or
 - proactive work is no longer accepted, for example because the mode changed from `auto`.
 
-Unaffected Tickets receive no notice. The change does not immediately revoke live Tickets' Mandates.
+Unaffected Tickets receive no notice. A change of the rules does not immediately revoke live Tickets' Mandates.
+
+A Ticket whose requester may no longer start work is the exception: its Mandate rests on that access, so the change revokes it and the Ticket stops the way a person's stop does. It is not told to wind down, and it cannot be resumed afterwards.
 
 Source configuration is separate from Policy. It controls what enters the system: which chats are read and whether a scope receives all messages or only mentions. A Mandate records its Source and receiving scope. Resuming needs the Source to still listen to the Thread, but does not require it to still receive every message there.
 
@@ -128,13 +129,13 @@ A condition on what the Executor may do with its own result, such as when it may
 
 An ended Ticket keeps its Mandate. A message on one of its own Threads from a person who may steer it can resume the same work without a new Eval or Decision. Bots and CI do not wake ended Tickets. The Executor decides whether the request fits the scope and ends the round if it does not.
 
-Only three operations change a Mandate: accept creates it, a person's stop withdraws it, and failed revalidation revokes it. A Ticket stopped by a person stays ended and receives nothing more. Work requested there needs a new accept.
+Only three operations change a Mandate: accept creates it, a person's stop withdraws it, and failed revalidation revokes it. A Ticket stopped by a person stays ended and receives nothing more. Work requested there needs a new accept. A Mandate revoked by a Policy change withdraws the Ticket the same way.
 
 ### Revalidation before resume
 
 The Source must still listen to the original Thread. The remaining checks depend on the Mandate's basis:
 
-- An explicit follow-up Mandate passes.
+- An explicit follow-up Mandate passes while its sender is still on the Source's allowed list: a follow-up does not outlive the access that created it.
 - An inferred Mandate needs `auto` mode and its matched rules still enabled.
 - A Mandate admitted by a table cell must still receive at least its original strength under today's table and sender membership. Removing a sender from the list can therefore revoke a Mandate accepted through the listed-sender cell.
 - A bot's Mandate requires that bot to remain on the Source's bot list. Inferred table and bot Mandates also need `auto` mode and enabled matched rules.

@@ -127,6 +127,36 @@ it('keeps a follow-up\'s notice in the effect queue until the main Session takes
   expect(h.runtime.effects.pending('relay')).toBe(false)
 })
 
+it('does not let a sender taken off the list resume a ticket a follow-up created', async () => {
+  h = await startRuntime()
+  const { ticket, sessionId } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))
+  // Alice's follow-up is handed back and accepted as new work: its Mandate is a follow-up one, hers.
+  const work = followup('2', '另外把导出按钮也加上')
+  h.runtime.receive(work)
+  await h.runtime.idle()
+  await h.runTool(sessionId, 'orchestrator_trigger_handback', { trigger_id: work.id, reason: 'It asks for an export button.' })
+  await h.runtime.pump(); await h.runtime.idle()
+  const accepted = await h.route({ kind: 'accept', trigger_id: work.id, title: '导出按钮', worktree_name: 'export', acknowledgement: '收到，加导出按钮。' })
+  await h.runtime.idle()
+  const fresh = h.runtime.store.tickets.get((accepted.ticket as { ticket_id: string }).ticket_id)!
+  expect(fresh.mandate).toMatchObject({ strength: 'explicit', basis: { via: 'followup' } })
+  // The work ends by itself, and the ended ticket keeps its Mandate.
+  await h.runTool(`worker-${fresh.id}`, 'orchestrator_report', { state: 'dropped', summary: 'Nothing to do.' })
+  await h.runtime.idle()
+  expect(h.runtime.store.tickets.get(fresh.id)!.ended).toBeDefined()
+  // Alice comes off the allowed list: the live ticket stops, and the ended one keeps its Mandate but not its authority.
+  const policy = h.runtime.store.settings().policy
+  await h.runtime.settings.save('policy', { ...policy, sources: { ...policy.sources, feishu: { ...policy.sources.feishu!, allowed: [] } } },
+    h.runtime.store.blockRevision('policy'), 'panel')
+  await h.runtime.idle()
+  expect(h.runtime.store.tickets.get(ticket.id)!.ended).toMatchObject({ by: 'human', outcome: 'stopped', reason: 'revoked' })
+  // Her message does not resume the ended ticket: a follow-up Mandate does not outlive the access that created it.
+  h.runtime.receive(followup('3', '还是再试一次'))
+  await h.runtime.idle(); await h.runtime.pump()
+  expect(h.runtime.store.tickets.get(fresh.id)!.ended).toBeDefined()
+  expect(h.runtime.store.tickets.get(fresh.id)!.assignments).toHaveLength(1)
+})
+
 it('relays a message a worker handed back as a candidate with the worker\'s reason', async () => {
   h = await startRuntime()
   const { ticket, sessionId } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))

@@ -1385,9 +1385,20 @@ describe('final review: Policy transitions', () => {
   it('tells a worker of each Policy change that bears on its ticket, also of one that repeats an earlier transition', () => {
     const h = harness()
     const ticketId = accepted(h).ticketId!
-    const effect = { requesterAllowed: false as const }
+    const effect = { rules: [{ id: 'copy', name: 'Copy fixes', change: 'changed' as const, instruction: 'Fix typos.' }] }
     for (const [from, to] of [['A', 'B'], ['B', 'A'], ['A', 'B']]) { h.tick(1); h.engine.policyChanged(from!, to!, new Map([[ticketId, effect]])) }
     expect(h.repo.tickets.get(ticketId)!.inputs.filter(input => input.kind === 'policy-changed')).toHaveLength(3)
+  })
+  it('stops a live ticket whose requester may no longer start work, and tells it no further', () => {
+    const h = harness()
+    const ticketId = accepted(h).ticketId!
+    const effect = { requesterAllowed: false as const, requester: { source: 'chat', id: 'alice' } }
+    h.engine.policyChanged('v1', 'v2', new Map([[ticketId, effect]]))
+    const ticket = h.repo.tickets.get(ticketId)!
+    // The Mandate is revoked, so the ticket stops the way a person's stop does, and its worker stops with it.
+    expect(ticket.ended).toMatchObject({ by: 'human', outcome: 'stopped', reason: 'revoked' })
+    expect(h.executor.stop).toHaveBeenCalled()
+    expect(ticket.inputs.filter(input => input.kind === 'policy-changed')).toEqual([])
   })
 })
 describe('final review: Threads followed for context', () => {

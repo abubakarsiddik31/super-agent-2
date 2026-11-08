@@ -197,15 +197,20 @@ export class Tickets extends EnginePart {
   }
   /**
    * Tell each open ticket a Policy change bears on how it does, oldest first, so their deliveries queue in the order they
-   * were accepted; the others are left alone.
+   * were accepted; the others are left alone. A ticket whose requester may no longer start work stops instead of being told
+   * to wind down: its Mandate is revoked, so it cannot carry on.
    */
   policyChanged(from: string, to: string, effects: ReadonlyMap<string, PolicyEffect>): void {
     const at = this.now()
     // Iterate tickets oldest first so deliveries queue in acceptance order.
     for (const ticket of this.repo.tickets.open().sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
       const effect = effects.get(ticket.id)
+      if (!effect) continue
+      // The requester lost the access this ticket rests on, so it stops the way a person's stop does: the Mandate is
+      // withdrawn, its worker stops, and work requested there needs a new accept.
+      if (effect.requesterAllowed === false) { this.end(ticket.id, 'human', 'stopped', at, 'revoked'); continue }
       // Include `at` in the input key so repeated transitions between the same policy versions still record a new input.
-      if (effect) this.addInput(ticket, { id: key('input', ticket.id, 'policy', from, to, at), kind: 'policy-changed', from, to, at, effect })
+      this.addInput(ticket, { id: key('input', ticket.id, 'policy', from, to, at), kind: 'policy-changed', from, to, at, effect })
     }
   }
   /**

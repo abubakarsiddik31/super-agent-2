@@ -55,7 +55,7 @@ Aggregates: a Source holds its read position. A Thread holds its Subscriptions, 
 | Correlation that routes | Subscriptions route; Correlation only adds context |
 | Ticket state that follows the DSH Session | A Ticket can be handed off, resumed, or run by several Executors, so it defines its own state |
 | An Executor declaring that a person asked it to stop | Only Eval decides the strength of an end |
-| Cancelling running Tickets on a Policy change | A cancelled change leaves half-finished work; the change is recorded and delivered instead |
+| Cancelling running Tickets on a Policy change | A cancelled change leaves half-finished work; the change is recorded and delivered instead, except for a Ticket whose requester lost the access its Mandate rests on, which stops |
 | Locking all of an Executor Session's tools when it fails or blocks | It would refuse a person working directly in the Session, and the report after recovery; pausing automatic input is enough |
 | Inferring "waiting on a person" from a report's free text | The classification needs structured facts; the Executor asks through a structured field |
 
