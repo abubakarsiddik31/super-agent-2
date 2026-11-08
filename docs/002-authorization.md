@@ -152,6 +152,8 @@ The time limit starts when the candidate reaches the main Session. Time spent wa
 
 An expired Eval queues its Triggers for another attempt. After two consecutive retries, the third expiry records `unavailable`. An assessment failure also records `unavailable`; a later Trigger can start a new Eval. A Policy change or a decision made against an outdated Policy records `unavailable` and immediately queues the batch under the current version.
 
+When an Eval ends `unavailable` and does not queue its Triggers again, the host answers each addressed message from a sender the Source still lists, once per message, with a fixed reply in the language the person wrote: the request could not be processed and nothing was changed. A message from anyone else stays unanswered, as before. The id is derived from the Trigger, so requeues, retries and restarts do not send it twice.
+
 The `evals` health entry reports unresolved unavailable Decisions from the last hour. `scripts/dsh-superagent status` includes that error.
 
 The panel asks for human attention only when the unavailable Decision is less than 24 hours old, is still the latest Decision on its Thread, has not been dismissed, and the Thread is neither queued nor evaluating. A person can evaluate the Trigger again or dismiss the problem.

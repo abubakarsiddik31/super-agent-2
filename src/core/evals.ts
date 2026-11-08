@@ -6,6 +6,7 @@ import type { Decision, DecisionKind, Evaluation, Mandate, MandateBasis, Strengt
 import type { AssessmentOutcome, Candidate, Policy } from './ports.ts'
 import { said, type Reason } from './reasons.ts'
 import { EnginePart, type EngineOptions } from './part.ts'
+import { isChinese } from './replies.ts'
 import type { Tickets } from './tickets.ts'
 
 /** An outcome for the Eval that holds a Trigger; `evalId` names the Eval it was judged for, so a later Eval refuses it. */
@@ -59,7 +60,7 @@ export class Evals extends EnginePart {
    */
   private expire(thread: Thread): void {
     const expired = (thread.expired ?? 0) + 1
-    if (expired > REQUEUES) { this.finish(thread, thread.evaluating!, { kind: 'unavailable', reason: [{ code: 'timeout' }] }); return }
+    if (expired > REQUEUES) { this.drop(thread, thread.evaluating!, { kind: 'unavailable', reason: [{ code: 'timeout' }] }); return }
     const { id, triggerIds } = thread.evaluating!
     delete thread.evaluating
     thread.expired = expired
@@ -284,11 +285,13 @@ export class Evals extends EnginePart {
     // Requeue if Policy changed without a live policyChanged call (such as across an upgrade or restart).
     if (this.policy().version !== evaluation.policyVersion) {
       if (thread.evaluating?.id === evaluation.id) return this.reassess(thread, { code: 'policyChanged' })
-      return this.finish(thread, evaluation, { kind: 'unavailable', reason: [{ code: 'policyChanged' }], ...audit })
+      return this.drop(thread, evaluation, { kind: 'unavailable', reason: [{ code: 'policyChanged' }], ...audit })
     }
     // An inferred candidate ignored without an assessment, from its card, says so beside the reason given.
     const unassessed = outcome.kind === 'ignore' && evaluation.strength !== 'explicit' && !outcome.audit ? [{ code: 'ignoredFromCard' }] : []
-    if (outcome.kind === 'ignore' || outcome.kind === 'unavailable') return this.finish(thread, evaluation, { kind: outcome.kind,
+    if (outcome.kind === 'ignore') return this.finish(thread, evaluation, { kind: outcome.kind,
+      reason: [...unassessed, ...reasonOf(outcome.reason)], ...audit })
+    if (outcome.kind === 'unavailable') return this.drop(thread, evaluation, { kind: outcome.kind,
       reason: [...unassessed, ...reasonOf(outcome.reason)], ...audit })
     if (outcome.kind === 'stop') {
       const ticket = this.repo.tickets.get(outcome.ticketId)
@@ -313,6 +316,34 @@ export class Evals extends EnginePart {
     const decision = this.finish(thread, evaluation, { kind: 'accept', reason: reasonOf(outcome.reason), ...audit, mandate, ticketId })
     this.tickets.create(ticketId, decision.id, mandate, evaluation, outcome, at)
     return decision
+  }
+  /**
+   * End an Eval that drops its Triggers rather than requeueing them, and tell the people whose addressed requests it held.
+   * A timed-out request or an unavailable assessor is otherwise answered only in the panel.
+   */
+  private drop(thread: Thread, evaluation: Evaluation, outcome: Finished): Decision {
+    const decision = this.finish(thread, evaluation, outcome)
+    if (outcome.kind === 'unavailable') this.notifyUnavailable(thread, evaluation)
+    return decision
+  }
+  /**
+   * Queue one fixed reply per addressed message from an allowed sender that this Eval drops, in the language the person
+   * wrote, under an id that keeps one message from being answered twice across requeues and restarts.
+   */
+  private notifyUnavailable(thread: Thread, evaluation: Evaluation): void {
+    const policy = this.policy()
+    const tickets = this.ticketsOnThread(thread)
+    for (const triggerId of evaluation.triggerIds) {
+      const trigger = this.repo.triggers.get(triggerId)
+      // Only an addressed message from a sender the Source still lists gets an answer; anyone else's silence is unchanged.
+      if (!trigger?.human || !trigger.addressed || !trigger.channel) continue
+      const gate = policy.gate(trigger, thread, tickets)
+      if (!gate.admissible || !gate.basis.sender) continue
+      const text = isChinese(trigger.text)
+        ? '这次请求没能及时处理，什么都没有改动。请稍后再试。'
+        : 'This request could not be processed in time, and nothing was changed. Please ask again later.'
+      this.options.outbox.send({ id: key('eval-unavailable', triggerId), channel: trigger.channel, text, kind: 'notice' })
+    }
   }
   /** Record an Eval's Decision; the Thread's own Eval ends with it, while a gate-only one leaves the Thread's Eval going. */
   private finish(thread: Thread, evaluation: Evaluation, outcome: Finished): Decision {
