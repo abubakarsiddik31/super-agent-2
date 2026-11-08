@@ -40,7 +40,7 @@ export interface Trigger {
 
 /** Where a trigger went after intake; it grants nothing, but decides who decides a person's follow-up (see `followupOwners`). */
 export interface TriggerDisposition {
-  /** Rejected by the source scope filter before entering the domain, for the Source's reason. */
+  /** Rejected before entering the domain, by the Source's scope filter or the host's intake rate limit, for the reason. */
   filtered?: Reason
   evalId?: string
   decisionId?: string

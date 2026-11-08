@@ -5,7 +5,7 @@ import type { Ticket, Trigger } from './model.ts'
 import { EnginePart, type EngineOptions } from './part.ts'
 import type { Tickets } from './tickets.ts'
 
-export type ReceiveResult = 'stored' | 'duplicate' | 'filtered'
+export type ReceiveResult = 'stored' | 'duplicate' | 'filtered' | 'limited'
 
 /**
  * Ingests incoming triggers from Sources, deduplicating and filtering them against SourceScope before recording thread correlations.
@@ -26,6 +26,13 @@ export class Intake extends EnginePart {
     if (!filter.listened) {
       this.repo.triggers.save(trigger); this.repo.triggers.saveDisposition(trigger.id, { filtered: { code: filter.reason }, fanout: [], at })
       return 'filtered'
+    }
+    // The host's rate limits come before any model sees the message: a burst is stored with its reason and reaches neither Eval nor a worker.
+    const limit = this.options.intakeLimits?.refuse(trigger, trigger.threads.map(threadKey))
+    if (limit) {
+      this.repo.triggers.save(trigger)
+      this.repo.triggers.saveDisposition(trigger.id, { filtered: { code: 'rateLimited', values: { limit } }, fanout: [], at })
+      return 'limited'
     }
     this.repo.triggers.save(trigger)
     const keys = trigger.threads.map(threadKey)

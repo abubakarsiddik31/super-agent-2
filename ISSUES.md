@@ -189,7 +189,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** comment spam on a public repo wakes workers and fills router turns, spending tokens. WIP-3 removes the worst path, but listed bots and CI remain.
 - **Fix:** add per-thread and per-sender limits before any model is called, plus a global circuit breaker.
 - **Acceptance:** a test sends 1,000 messages in a burst, and model-bound deliveries stay under the limit while dropped counts appear in health.
-- **Size:** S. **Depends on:** WIP-3. **Status:** Confirmed-by-reading.
+- **Size:** S. **Depends on:** WIP-3. **Status:** Done (security/cost-02-intake-rate-limit): `src/core/rate-limit.ts` gives Intake a sliding-window limit of 20 per sender, 60 per Thread and 200 in total per minute; a refused Trigger is stored with a `rateLimited` disposition and reaches neither Eval nor a worker. `intakeHealth` reports the last hour's count on the `intake` health entry, and the overview's flow shows it. `tests/core-engine.spec.ts` sends 1,000 in one window, `tests/health.spec.ts` proves the model work stays under the limit and the health entry reports it.
 
 ## CAP-01: No real Watchdog
 - **Evidence:** the article's section 6 describes one. A search of `src`, `docs`, `prompts`, and `scripts` for "watchdog" finds nothing. `docs/006-deployment.md:133` is an hourly LLM prompt in another profile, and only reports status.

@@ -3,12 +3,15 @@ import { UserError } from './errors.ts'
 import { followupOwners, reached, threadKey } from './model.ts'
 import type { Thread, ThreadRef, Ticket, Trigger } from './model.ts'
 import type { Assessor, AssessmentOutcome, DomainEvent, DomainEvents, Executor, Outbox, Policy, Repositories, SourceScope } from './ports.ts'
+import type { IntakeLimits } from './rate-limit.ts'
 
 export interface EngineOptions {
   repo: Repositories
   policy: () => Policy
   /** Decides whether a Source listens to a trigger; one it does not listen to is stored with a `filtered` disposition. */
   scope: SourceScope
+  /** The host's limits on incoming Triggers, checked before any model sees one; without them every listened Trigger is taken in. */
+  intakeLimits?: IntakeLimits
   assessor: Assessor
   executor: Executor
   outbox: Outbox

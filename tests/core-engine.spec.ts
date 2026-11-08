@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Engine, MemoryRepositories, UserError, followupOwners, key, runningAssignment, ticketOutcome, ticketStage,
+import { Engine, INTAKE_PER_SENDER, MemoryRepositories, UserError, followupOwners, intakeLimits, key, runningAssignment, ticketOutcome, ticketStage,
   waitsForPerson } from '../src/core/index.ts'
 import type { Assessor, Assignment, Candidate, EngineOptions, Executor, OutboundMessage, Outcome, Policy, Ticket, Trigger } from '../src/core/index.ts'
 
@@ -11,8 +11,9 @@ function trigger(id: string, overrides: Partial<Trigger> = {}): Trigger {
 interface Hooks {
   emit?: (event: { type: string; data: Record<string, unknown> }) => void
   prepareTicket?: EngineOptions['prepareTicket']
+  intakeLimits?: EngineOptions['intakeLimits']
 }
-function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket }: Hooks = {}) {
+function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket, intakeLimits }: Hooks = {}) {
   const repo = new MemoryRepositories()
   const outbox: OutboundMessage[] = []
   const withdrawn: string[] = []
@@ -42,7 +43,7 @@ function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket }:
     withdraw: id => { withdrawn.push(id) },
   }
   const engine = new Engine({ repo, scope, policy: () => policy, assessor, executor, outbox: queued,
-    ...emit ? { emit } : {}, ...prepareTicket ? { prepareTicket } : {}, now: () => new Date(Date.UTC(2026, 8, 23, 0, 0, clock)).toISOString() })
+    ...intakeLimits ? { intakeLimits } : {}, ...emit ? { emit } : {}, ...prepareTicket ? { prepareTicket } : {}, now: () => new Date(Date.UTC(2026, 8, 23, 0, 0, clock)).toISOString() })
   /** Simulate the executor starting queued assignments (unless `launch` is false) and delivering pending ticket inputs. */
   function settle({ launch = true } = {}) {
     for (;;) {
@@ -86,6 +87,31 @@ describe('intake', () => {
     h.engine.receive(trigger('1', { threads: [{ source: 'gh', id: 'pr-7' }, { source: 'gh', id: 'run-9' }] }))
     expect(h.repo.threads.get('gh:pr-7')).toMatchObject({ pending: ['1'], correlated: ['gh:run-9'] })
     expect(h.repo.threads.get('gh:run-9')).toMatchObject({ pending: [], correlated: ['gh:pr-7'] })
+  })
+  it('refuses a burst past the sender limit before any model call, and records why', () => {
+    // One sender on one thread, all inside one window: the sender limit refuses everything after the first twenty.
+    const h = harness({}, { intakeLimits: intakeLimits(() => Date.UTC(2026, 8, 23, 0, 0, 0)) })
+    const results = Array.from({ length: 1000 }, (_, index) => h.engine.receive(trigger(String(index))))
+    expect(results.filter(result => result === 'stored')).toHaveLength(INTAKE_PER_SENDER)
+    expect(results.filter(result => result === 'limited')).toHaveLength(1000 - INTAKE_PER_SENDER)
+    // The refused Triggers are stored with their reason, and only the accepted ones reach Eval.
+    expect(h.repo.triggers.disposition('999')?.filtered).toEqual({ code: 'rateLimited', values: { limit: 'sender' } })
+    expect(h.repo.threads.get('chat:t1')?.pending).toHaveLength(INTAKE_PER_SENDER)
+    h.pump()
+    // One batch of the accepted Triggers is the only model work; the other 980 reach neither Eval nor a worker.
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0]!.triggers).toHaveLength(INTAKE_PER_SENDER)
+  })
+  it('refuses a Thread past its own limit and the whole host past the global one', () => {
+    const limits = { sender: 100, thread: 3, global: 5 }
+    const thread = harness({}, { intakeLimits: intakeLimits(() => 0, 60_000, limits) })
+    const onOne = (id: string, actor: string) => thread.engine.receive(trigger(id, { actor: { source: 'chat', id: actor } }))
+    expect([onOne('1', 'a'), onOne('2', 'b'), onOne('3', 'c'), onOne('4', 'd')]).toEqual(['stored', 'stored', 'stored', 'limited'])
+    expect(thread.repo.triggers.disposition('4')?.filtered).toEqual({ code: 'rateLimited', values: { limit: 'thread' } })
+    const host = harness({}, { intakeLimits: intakeLimits(() => 0, 60_000, limits) })
+    const spread = (id: number) => host.engine.receive(trigger(String(id), { threads: [{ source: 'chat', id: `t${id}` }], actor: { source: 'chat', id: `u${id}` } }))
+    expect(Array.from({ length: 6 }, (_, index) => spread(index))).toEqual(['stored', 'stored', 'stored', 'stored', 'stored', 'limited'])
+    expect(host.repo.triggers.disposition('5')?.filtered).toEqual({ code: 'rateLimited', values: { limit: 'global' } })
   })
 })
 describe('eval', () => {

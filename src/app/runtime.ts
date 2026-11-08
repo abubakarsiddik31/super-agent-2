@@ -4,7 +4,7 @@ import type { AgentHandle, AgentPorts, HostPort } from '../runner/port.ts'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
-import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
+import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger, intakeLimits } from '../core/index.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
 import { Commands } from '../infra/commands.ts'
@@ -16,7 +16,7 @@ import { ticketCard } from './cards.ts'
 import { MasterAssessor } from './assessment.ts'
 import { KV } from '../kv.ts'
 import { Store } from './store.ts'
-import { evalsHealth } from './views/overview.ts'
+import { evalsHealth, intakeHealth } from './views/overview.ts'
 import { TextCache } from './cache.ts'
 import { Effects } from './effects.ts'
 import { Prompts } from './prompts.ts'
@@ -141,7 +141,8 @@ export class Runtime implements SourceHost {
       const { assessor, executor } = this
       const policy = () => settingsPolicy(store.settings(), sources)
       const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor,
-        outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
+        // A burst is refused here, before Eval or a worker can spend a model turn on it.
+        intakeLimits: intakeLimits(), outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
           // Notify the main Session only about domain events it did not initiate itself.
           const notice = this.quiet ? undefined : eventNotice(event, id => store.tickets.get(id))
           if (notice) sessions.notify(...notice)
@@ -157,9 +158,10 @@ export class Runtime implements SourceHost {
             for (const message of pullEndNotices(ended, request, setup.deployment.repository)) outbox.send(message)
           }
         } })
-      // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
+      // Update the `evals` and `intake` health entries on every pass: an Eval that failed as unavailable, and Triggers the rate limit refused.
       const evals = board.claim('evals', { state: 'ready', detail: 'No unavailable Eval in the last hour' })
-      const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }
+      const intake = board.claim('intake', { state: 'ready', detail: 'No Trigger was rate limited in the last hour' })
+      const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)); intake.set(intakeHealth(store)) }
       const passes = this.passes = new Passes({ engine: { receive: trigger => engine.receive(trigger), evaluateDue }, effects,
         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },

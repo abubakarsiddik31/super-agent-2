@@ -31,6 +31,13 @@ export function evalsHealth(store: Store, now = Date.now()): Health {
   return { state: 'error', at: latest.at, detail: `${open.length} Eval(s) unavailable in the last hour without a later judgement; `
     + `the latest on ${latest.threadKey}: ${reasonText(latest.reason)}` }
 }
+/** Reports error health when the intake rate limit refused any Trigger in the last hour, with how many and by which limit. */
+export function intakeHealth(store: Store, now = Date.now()): Health {
+  const since = new Date(now - 3_600_000).toISOString()
+  const limited = Object.values(store.read.triggerStats(since)).reduce((sum, item) => sum + item.limited, 0)
+  if (!limited) return { state: 'ready', detail: 'No Trigger was rate limited in the last hour' }
+  return { state: 'error', detail: `${limited} Trigger(s) were refused by the intake rate limit in the last hour: a burst exceeded a per-sender, per-thread or global limit` }
+}
 /**
  * Builds the operator overview: active system problems, tickets awaiting human action, executor load, and 24-hour trigger flow.
  * @param setup - Setup problem to surface first (where setup stopped, or a Source paused by setup).
@@ -67,12 +74,13 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue: 
   const open = store.tickets.open().sort(newestFirst)
   const stats = Object.values(store.read.triggerStats(since))
   const received = stats.reduce((sum, item) => sum + item.received, 0), filtered = stats.reduce((sum, item) => sum + item.filtered, 0)
+  const limited = stats.reduce((sum, item) => sum + item.limited, 0)
   const judgement = store.read.flow(since)
   return {
     problems,
     person: open.filter(ticket => ticketStage(ticket).stage === 'person').map(ticket => ticketRow(view, ticket)),
     executor: { ...load, maxWorkers: settings.executor.maxWorkers, idle: open.filter(ticket => ticketStage(ticket).stage === 'idle').length },
-    flow: { received, filtered, triggers: received - filtered, judged: judgement.judged, accepted: judgement.accepted,
+    flow: { received, filtered, limited, triggers: received - filtered, judged: judgement.judged, accepted: judgement.accepted,
       evaluating: evaluating.length, dropped: store.read.droppedSince(since) },
     policyVersion: policyVersionValue,
   }
