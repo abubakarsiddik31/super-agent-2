@@ -18,8 +18,9 @@ export class SandboxUnavailable extends Error {}
 /** The real path of `path`, or `path` itself when it does not exist; a profile names the real path, not a link to it. */
 export const real = (path: string): string => { try { return realpathSync(path) } catch { return resolve(path) } }
 
-/** Whether a program is on the path. */
+/** Whether a program is on the path, or in the system directory macOS keeps `sandbox-exec` in. */
 function onPath(program: string): boolean {
+  if (existsSync(join('/usr/bin', program))) return true
   return (process.env.PATH ?? '').split(delimiter).some(dir => dir && existsSync(join(dir, program)))
 }
 
@@ -27,7 +28,7 @@ function onPath(program: string): boolean {
 export function chooseSandbox(mode: SandboxMode = 'auto', os: string = platform(), has: (program: string) => boolean = onPath): Sandbox | undefined {
   if (mode === 'off') return undefined
   const available: Record<string, boolean> = {
-    seatbelt: os === 'darwin' && existsSync('/usr/bin/sandbox-exec'),
+    seatbelt: os === 'darwin' && has('sandbox-exec'),
     bubblewrap: os === 'linux' && has('bwrap'),
   }
   const name = mode === 'auto' ? (['seatbelt', 'bubblewrap'] as const).find(candidate => available[candidate]) : mode
