@@ -99,4 +99,20 @@ export class Replies extends EnginePart {
   }
   /** The conversation a ticket started in: its origin Trigger's Channel, else its first Channel. */
   private sourceChannel(ticket: Ticket): ChannelRef | undefined { return this.source(ticket)?.channel ?? ticket.channels[0] }
+  /**
+   * Queue the fixed notice a failed ticket's requester gets, to the conversation the ticket started in, once per failure.
+   * The host sends it itself, so a requester hears that the work failed even when the main Session is down, overloaded or
+   * chooses not to relay it. The text follows the language of the request; the summary is already redacted by the Executor.
+   */
+  failure(ticketId: string, summary: string): void {
+    const ticket = this.repo.tickets.get(ticketId)
+    const channel = ticket && this.sourceChannel(ticket)
+    if (!ticket || !channel) return
+    const request = this.repo.triggers.get(ticket.origin.triggerId)?.text ?? ''
+    const brief = summary.length > 200 ? `${summary.slice(0, 200)}…` : summary
+    const text = isChinese(request)
+      ? `这项请求处理失败：${brief}。什么都没有改动。可以在面板中重试。`
+      : `This request failed: ${brief}. Nothing was changed. A person can retry it from the panel.`
+    this.options.outbox.send({ id: key('failure', ticketId, summary), channel, text, kind: 'notice', ticketId })
+  }
 }
