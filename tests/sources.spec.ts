@@ -11,6 +11,7 @@ import { ciCounts, ciFact, ciSummary } from '../src/sources/github-read.ts'
 import { apply as applyGithub, githubKind, pollFailure, pollRound } from '../src/sources/github.ts'
 import { pollThreads as pollGithubThreads } from '../src/sources/github.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
+import type { Health } from '../src/sources/host.ts'
 import { cursorAt, POLL_HORIZON_MS } from '../src/sources/poll.ts'
 import { Store } from '../src/app/store.ts'
 import { Commands, commandError } from '../src/infra/commands.ts'
@@ -1043,7 +1044,7 @@ describe('feishu event consumer', () => {
    * A bot CLI whose `event consume` behaves as `mode` says: `never` gets ready, `warn` warns once ready, `ready` stays up,
    * and `flaky` exits after its first ready. It records each run and the PID of the latest.
    */
-  function cli(mode: 'never' | 'warn' | 'ready' | 'flaky' | 'events' | 'late'): string {
+  function cli(mode: 'never' | 'warn' | 'ready' | 'flaky' | 'events' | 'late' | 'masked'): string {
     const path = join(dir, 'lark-bot')
     writeFileSync(path, `#!/bin/sh
   [ "$1" = event ] || { echo '{"ok":true,"data":{}}'; exit 0; }
@@ -1055,6 +1056,7 @@ describe('feishu event consumer', () => {
     flaky) echo '[event] ready' >&2; [ "$n" -gt 1 ] && exec sleep 60; exit 1 ;;
     events) echo '[event] ready' >&2; cat '${dir}/events'; touch '${dir}/printed'; exec sleep 60 ;;
     late) echo '[event] ready' >&2; sleep 1; cat '${dir}/events'; touch '${dir}/printed'; exec sleep 60 ;;
+    masked) cat '${dir}/events'; sleep 1; echo '[event] ready' >&2; echo 'error the consumer was still reading' >&2; exec sleep 60 ;;
   esac
   `, { mode: 0o755 })
     return path
@@ -1079,7 +1081,12 @@ describe('feishu event consumer', () => {
     const deps: SourceContextDeps = { store, engine, outbox: { send: () => {} }, commands, sources, deployment, ready: Promise.resolve(), configured: () => true,
       receive: (trigger: Trigger) => engine.receive(trigger) }
     const turnOff = () => store.saveSettings(SettingsSchema.parse({ sources: { feishu: { enabled: false, config: { chats: [] } } } }))
-    return { ctx: sourceContextOf(deps, feishuKind), health, store, turnOff }
+    const ctx = sourceContextOf(deps, feishuKind)
+    // Every health report the Source makes, in order, so a test can see which one came last.
+    const reported: Health[] = []
+    const report = ctx.report
+    ctx.report = (entry, value) => { reported.push(value); report(entry, value) }
+    return { ctx, health, reported, store, turnOff }
   }
 
   /** A message event line as `event consume` prints it; a group message mentions the bot. */
@@ -1095,6 +1102,19 @@ describe('feishu event consumer', () => {
     expect(['om_1', 'om_2'].map(id => store.triggers.get(feishuTriggerId(id))?.meta.direct)).toEqual([false, true])
     expect(store.get(KV.feishu.chats)).toEqual({ oc_group: false, oc_dm: true })
     expect(health.feishu).toMatchObject({ state: 'error', detail: expect.stringContaining('JSON') })
+    controller.abort(); await running; store.close()
+  }, 20_000)
+  it('does not let the ready signal hide a malformed line it already reported', async () => {
+    writeFileSync(join(dir, 'events'), [event('om_1', 'oc_group', 'group'), 'not json'].join('\n') + '\n')
+    const { ctx, reported, store } = consumerSource(cli('masked'))
+    running = runFeishu(ctx, controller.signal)
+    // The consumer reads the events before it says it is ready, so the malformed line is reported first. The line
+    // after the ready signal proves the parent read that signal, because the two are read in order.
+    await vi.waitFor(() => expect(reported.some(report => report.detail.includes('the consumer was still reading'))).toBe(true), until)
+    const states = reported.map(report => report.state)
+    const firstError = states.indexOf('error')
+    expect(firstError).toBeGreaterThanOrEqual(0)
+    expect(states.slice(firstError + 1)).not.toContain('ready')
     controller.abort(); await running; store.close()
   }, 20_000)
   it('drops the events it reads once the Source is off', async () => {
