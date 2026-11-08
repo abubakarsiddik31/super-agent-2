@@ -47,6 +47,10 @@ interface SessionBinding { disposers: (() => void)[]; scope?: SkillScope; skills
  */
 const WORK_TOOLS = ['read', 'write', 'edit', 'read_image', 'glob', 'grep', 'bash', 'pwsh', 'job_output', 'job_list', 'job_kill', 'web_search',
   'web_fetch', 'skill', 'todo_write', 'subagent', 'list_subagent_models', 'send_message', 'list_agents', 'interrupt_agent']
+/** How many parents Sessions walks up from a subagent before it gives up and fails closed. */
+const MAX_SUBAGENT_DEPTH = 8
+/** The reason a guard gives when a subagent's ancestry does not resolve to a live ticket. */
+const SUBAGENT_UNRESOLVED = 'This agent is a subagent whose ancestry does not resolve to a live ticket, so it has no tools'
 /**
  * Creates and decorates orchestrator and worker agent sessions with role models, system prompt sections from `Prompts`, runtime skills, and restricted tool sets.
  * `Runtime`, `DshExecutor`, `MasterAssessor`, `Settings`, and management routes/tools use it to ensure sessions, deliver deduplicated messages via `AgentDelivery`, and process ordered `relay` and `notice` effects.
@@ -223,20 +227,43 @@ export class Sessions {
   }
   /**
    * A subagent of an Executor Session, or of one of its subagents, which runs under DSH's `standard` preset with the worker's
-   * permissions, gets the same work tools as the worker, and none once the worker's ticket ended. Any other agent is left as
-   * it is.
+   * permissions, gets the same work tools as the worker, and none once the worker's ticket ended. A subagent whose ancestry
+   * does not resolve to a live ticket gets no tools at all: failing closed is the only safe answer when the host cannot tell
+   * which ticket's limits apply. An agent with no parent is not a subagent (a person may open a Session of their own), so it
+   * is left as it is.
    */
   private limitSubagent(agent: AgentHandle): void {
     const { runner } = this.ports
-    let parent = runner.parentId(agent)
-    // Up the subagents' parents to the worker, which are loaded while their subagents run.
-    for (let depth = 0; parent !== undefined && ticketOfSession(parent) === undefined && depth < 8; depth++) {
-      const next = runner.get(parent)
-      parent = next && runner.parentId(next)
+    const parent = runner.parentId(agent)
+    if (parent === undefined) return
+    const ticketId = this.workerOf(parent)
+    const ticket = ticketId === undefined ? undefined : this.host.store.tickets.get(ticketId)
+    this.bindings.set(agent, ticket && ticketId !== undefined
+      ? { disposers: this.workOnly(agent, ticketId), subagent: true }
+      : { disposers: this.none(agent), subagent: true })
+  }
+  /**
+   * The ticket whose worker is `parent` or one of its ancestors, within `MAX_SUBAGENT_DEPTH` hops; undefined when the chain is
+   * deeper than that or a parent is not loaded.
+   */
+  private workerOf(parent: string): string | undefined {
+    const { runner } = this.ports
+    let current: string | undefined = parent
+    for (let depth = 1; current !== undefined && depth <= MAX_SUBAGENT_DEPTH; depth++) {
+      const ticketId = ticketOfSession(current)
+      if (ticketId !== undefined) return ticketId
+      const agent = runner.get(current)
+      current = agent && runner.parentId(agent)
     }
-    const ticketId = parent === undefined ? undefined : ticketOfSession(parent)
-    if (ticketId === undefined || !this.host.store.tickets.get(ticketId)) return
-    this.bindings.set(agent, { disposers: this.workOnly(agent, ticketId), subagent: true })
+    return undefined
+  }
+  /**
+   * Removes every tool a subagent would otherwise inherit, for one whose ancestry does not resolve to a live ticket. The guard
+   * refuses anything that a scope-local registration still makes visible.
+   */
+  private none(agent: AgentHandle): (() => void)[] {
+    const binder = this.ports.runner.binder(agent)
+    return [binder.allowTools([]), binder.guardTools(() => SUBAGENT_UNRESOLVED)]
   }
   /** Register the skills of a prompt version in the agent's skill scope, in place of an earlier version's. */
   private bindSkills(binding: SessionBinding, version: PromptVersion): void {

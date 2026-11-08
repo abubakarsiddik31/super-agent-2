@@ -4,8 +4,10 @@ import { definePorts, type AgentHandle, type AgentPorts, type Binder } from '../
 
 /** A binder per agent id, each recording its tool limits and access; `available` is what the profile provides to a worker. */
 export type RecordingBinder = { [K in keyof Binder]: Mock }
-export function recordingPorts(available: readonly string[] = ['read', 'bash']): { ports: AgentPorts; binderOf: (id: string) => RecordingBinder; create: Mock } {
+export function recordingPorts(available: readonly string[] = ['read', 'bash'], parents: Record<string, string> = {}):
+  { ports: AgentPorts; binderOf: (id: string) => RecordingBinder; create: Mock } {
   const binders = new Map<string, RecordingBinder>()
+  const agents = new Map<string, AgentHandle>()
   const binderOf = (id: string) => {
     let binder = binders.get(id)
     if (!binder) {
@@ -16,11 +18,16 @@ export function recordingPorts(available: readonly string[] = ['read', 'bash']):
     }
     return binder
   }
-  const create = vi.fn(async ({ id }: { id: string }) => ({ id, status: 'idle', session: { id, snapshotEvents: () => [] },
-    inbox: { nextTurn: [], nextStep: [], remove: () => false } }) as unknown as AgentHandle)
+  const create = vi.fn(async ({ id }: { id: string }) => {
+    const agent = { id, status: 'idle', session: { id, snapshotEvents: () => [] },
+      inbox: { nextTurn: [], nextStep: [], remove: () => false } } as unknown as AgentHandle
+    agents.set(id, agent)
+    return agent
+  })
   const noop = () => () => {}
   const ports = definePorts({
-    runner: { get: () => undefined, resolve: async () => undefined, create, rename: async () => {}, binder: (agent: AgentHandle) => binderOf(agent.id) as unknown as Binder,
+    runner: { get: (id: string) => agents.get(id), resolve: async () => undefined, create, rename: async () => {},
+      binder: (agent: AgentHandle) => binderOf(agent.id) as unknown as Binder, parentId: (agent: AgentHandle) => parents[agent.id],
       hasModel: () => false, seedModel: () => {}, created: noop, disposed: noop, status: noop, error: noop, inboxClaimed: noop, userMessage: noop, event: noop,
       pinRoles: () => {} } as never,
     transcripts: { flush: async () => {}, readUserMessages: async () => [], events: async () => [] },
