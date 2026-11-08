@@ -1654,12 +1654,13 @@ it('gives a subagent of a worker only the worker\'s work tools, and none once th
   expect(guards.get('child-1')!()).toBeUndefined()
   runtime.engine.stopTicket(ticket.id)
   expect(guards.get('child-1')!()).toBe('Ticket ended; new work needs a new authorized ticket')
-  // Another Session's subagent is left as it is.
+  // A subagent whose parent is not one of dsh-superagent's Sessions cannot be traced to a ticket, so it gets no tools at all.
   await (controller.create as (options: { sessionId: string }) => Promise<void>)({ sessionId: 'child-2' })
   const other = agents.get('child-2')! as unknown as { session: { header: { parentSession?: string } } }
   other.session.header = { parentSession: 'someone-else' }
   await ctx.parallel('agent/created', { agent: other } as never)
-  expect(restricts.get('child-2')).toBeUndefined()
+  expect(restricts.get('child-2')).toEqual([{ allow: [] }])
+  expect(guards.get('child-2')!()).toMatch(/no tools/)
 })
 
 it('gives a subagent of a worker\'s subagent the same work tools and guard', async () => {

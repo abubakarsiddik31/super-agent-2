@@ -126,7 +126,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** a subagent more than 8 levels below a worker, or one whose parent isn't loaded, would keep its preset's full tools. It would also lack the guard that removes tools once the ticket ends.
 - **Fix:** fail closed: give any subagent whose ancestry can't be resolved no tools, and cap nesting depth.
 - **Acceptance:** a unit test creates a chain 9 levels deep and a subagent with a missing parent, and neither gets unrestricted tools.
-- **Size:** S. **Depends on:** none. **Status:** Needs-verification (code confirmed; whether the harness permits that depth is unchecked).
+- **Size:** S. **Depends on:** none. **Status:** Done (security/sec-10-subagent-limits): `Sessions.limitSubagent` walks up to 8 parents; a subagent whose chain does not resolve to a live ticket, or whose parent is not loaded, gets no tools and a guard that refuses any that remain. `tests/subagent-limits.spec.ts` covers a nine-level chain, a missing parent and an agent with no parent. Whether the harness permits that depth is still unchecked, but it no longer matters.
 
 ## SEC-11: Worker reports pass unbounded, untrusted text to the router
 - **Evidence:** `src/app/tools/executor.ts:79` has no maximum on `summary`. `src/executor/dsh.ts:417-420` relays failure text. `src/executor/dsh.ts:258` puts prepare output in the failure message.
