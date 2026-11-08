@@ -306,7 +306,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/core/evals.ts` | `Evals`: the Evals of Threads and their Decisions |
 | `src/core/tickets.ts` | `Tickets`: the Ticket lifecycle, the Threads a Ticket follows, Subscriptions and Inputs |
 | `src/core/assignments.ts` | `Assignments`: the Executor's facts and its workers' Reports |
-| `src/core/replies.ts` | `Replies`: the Engine's Channel writes |
+| `src/core/replies.ts` | `Replies`: the Engine's Channel writes, and `isChinese`, the language a fixed host message follows |
 | `src/core/stage.ts` | `ticketStage` and `canRetry`: the Ticket stages of [003 Execution](003-execution.md) |
 | `src/core/errors.ts` | `UserError` and `USER_ERRORS` |
 | `src/core/reasons.ts` | `Reason`, `REASONS` and `reasonText`: why the core recorded a Decision or set a Trigger aside, by code |

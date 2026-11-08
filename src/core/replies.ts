@@ -7,6 +7,13 @@ import type { ReplyStatus } from './ports.ts'
 import { EnginePart } from './part.ts'
 
 /**
+ * Whether a message is written in Chinese, by Han characters and no kana. A fixed host message follows the language of the
+ * request it answers, so a person who wrote in Chinese is not answered in English.
+ */
+export const isChinese = (text: string): boolean =>
+  /\p{Script=Han}/u.test(text) && !/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text)
+
+/**
  * A message for a Channel, by purpose: an Executor's acknowledgement of a person's request it works on, the answer to a
  * person's question once the worker reported it, the result of a ticket that is `ready`, `completed`, `merged`, or `dropped`,
  * or the ticket's current `question` for a person (`attention`). When `ticketId` is omitted, the ticket that `triggerId` reached is used.

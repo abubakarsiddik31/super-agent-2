@@ -140,7 +140,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** an allowed person asks the agent for work, the router is stuck or its model is down, and the person gets no answer.
 - **Fix:** have the host send a templated failure reply on `unavailable` for addressed messages from authorized people, once per message.
 - **Acceptance:** an engine test expires an explicit request three times and sees exactly one outbound failure message.
-- **Size:** S. **Depends on:** none. **Status:** Confirmed-by-reading.
+- **Size:** S. **Depends on:** none. **Status:** Done (fix/com-01-unavailable-reply): `Evals.drop` sends a fixed reply through the outbox for each addressed message from a sender the Source still lists when an Eval ends `unavailable` without requeueing, in the language the person wrote, under `key('eval-unavailable', triggerId)`. `tests/core-engine.spec.ts` covers the three expiries with one message, the Chinese reply, and silence for a sender the list does not vouch for.
 
 ## COM-02: Ticket failure notices depend on the router choosing to send them
 - **Evidence:** `src/executor/dsh.ts:417-420` relays the failure to the router only. `prompts/dispatch.md:59` asks it to relay blockers briefly.

@@ -28,7 +28,7 @@ function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket }:
   let version = 'v1', paused = false
   const policy: Policy = {
     get version() { return version }, get paused() { return paused }, evalTimeoutMs: 60_000,
-    gate: (t, thread) => !t.human ? { admissible: false, reason: 'not human' } : t.actor.id === 'alice' ? { admissible: true, strength: 'explicit', basis: { via: 'listed' } } : thread.subscriptions.length ? { admissible: true, strength: 'inferred', basis: { via: 'followup' } } : { admissible: false, reason: 'not a member' },
+    gate: (t, thread) => !t.human ? { admissible: false, reason: 'not human' } : t.actor.id === 'alice' ? { admissible: true, strength: 'explicit', basis: { via: 'listed', sender: 'alice' } } : thread.subscriptions.length ? { admissible: true, strength: 'inferred', basis: { via: 'followup' } } : { admissible: false, reason: 'not a member' },
     steers: () => true,
     revalidate: () => version !== 'revoked',
     admitsInferred: rules => rules.length > 0,
@@ -161,7 +161,7 @@ describe('eval', () => {
   })
   it('counts an Eval\'s deadline from its delivery, queues its Triggers again twice when it expires, then records it unavailable', async () => {
     const h = harness()
-    h.engine.receive(trigger('1')); h.pump()
+    h.engine.receive(trigger('1', { addressed: 'mention' })); h.pump()
     // A candidate the assessor's Session has not taken does not expire.
     h.tick(600); h.pump()
     expect(h.engine.candidate('1')?.evalId).toBe(h.requests[0]!.evalId)
@@ -182,6 +182,24 @@ describe('eval', () => {
     expect(h.repo.threads.get('chat:t1')).toMatchObject({ pending: [] })
     expect(h.repo.threads.get('chat:t1')).not.toHaveProperty('evaluating')
     expect(h.repo.threads.get('chat:t1')).not.toHaveProperty('expired')
+    // The person who asked hears once that the request was not processed, in the language they wrote.
+    expect(h.outbox).toEqual([{ id: key('eval-unavailable', '1'), channel: trigger('1').channel,
+      text: 'This request could not be processed in time, and nothing was changed. Please ask again later.', kind: 'notice' }])
+  })
+  it('answers a timed-out request in Chinese when the person wrote in Chinese', () => {
+    const h = harness()
+    h.engine.receive(trigger('1', { text: '请修一下这个回归', addressed: 'mention' })); h.pump()
+    // Expire the Eval three times: two requeues, then unavailable.
+    for (let attempt = 0; attempt < 3; attempt++) { h.engine.candidateDelivered(h.requests.at(-1)!.evalId); h.tick(61); h.pump() }
+    expect(h.outbox.map(message => message.text)).toEqual(['这次请求没能及时处理，什么都没有改动。请稍后再试。'])
+  })
+  it('leaves an unlisted sender unanswered when an inferred request expires', () => {
+    // A gate that admits a follow-up without an allowed sender: the admission table can do this, and silence is unchanged.
+    const h = harness({ gate: t => ({ admissible: true, strength: 'inferred', basis: { via: 'followup' } }) })
+    h.engine.receive(trigger('1', { actor: guest, addressed: 'mention' })); h.pump()
+    for (let attempt = 0; attempt < 3; attempt++) { h.engine.candidateDelivered(h.requests.at(-1)!.evalId); h.tick(61); h.pump() }
+    expect(h.repo.decisions.byThread('chat:t1')).toEqual([expect.objectContaining({ kind: 'unavailable' })])
+    expect(h.outbox).toEqual([])
   })
 })
 describe('subscription fan-out', () => {
