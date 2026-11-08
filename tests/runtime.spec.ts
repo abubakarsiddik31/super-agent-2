@@ -1488,6 +1488,19 @@ it('fails a ticket at once on a worker error that is not passing, and relays it'
   expect(relays(runtime.masterId).at(-1)).toMatchObject({ kind: 'worker_report', ticket: { ticket_id: ticket.id }, state: 'failed' })
 })
 
+it('tells the requester a ticket failed itself, once, and not again after a restart', async () => {
+  const { ticket, sessionId } = await acceptedTicket()
+  ;ctx.emit('agent/error', { agent: agents.get(sessionId), turn: 1, step: 1, error: new Error('Invalid tool schema') } as never)
+  await vi.waitFor(() => expect(runtime.store.tickets.get(ticket.id)!.assignments.at(-1)!.report).toMatchObject({ state: 'failed' }))
+  await runtime.idle()
+  // The host queued the notice to the ticket's own conversation, under an id derived from the failure.
+  const id = key('failure', ticket.id, 'Error: Invalid tool schema')
+  expect(runtime.store.receipts.get(id)).toMatchObject({ status: 'sent', ticketId: ticket.id, text: expect.stringContaining('这项请求处理失败') })
+  // The receipt is durable, so a restart finds the same failure already told and cannot send it again.
+  await (await restart()).ready
+  expect(runtime.store.receipts.get(id)).toMatchObject({ status: 'sent' })
+})
+
 it('refuses an ended ticket\'s worker its tools, and restricts the main Session to the tools it may use', async () => {
   const { ticket, sessionId } = await acceptedTicket()
   expect(guards.get(sessionId)!()).toBeUndefined()

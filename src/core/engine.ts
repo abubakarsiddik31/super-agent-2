@@ -133,6 +133,11 @@ export class Engine {
    * is not ready, completed, merged, or dropped.
    */
   reply(request: ReplyRequest): Reply { return this.repo.atomic(() => this.replies.reply(request)) }
+  /**
+   * Queue the fixed notice a failed ticket's requester gets, once per failure (see `Replies.failure`). The Executor calls
+   * this itself, so a failure reaches the person who asked without depending on the main Session relaying it.
+   */
+  failure(ticketId: string, summary: string): void { this.repo.atomic(() => this.replies.failure(ticketId, summary)) }
 
   // People, through the panel or the main Session
 
@@ -267,4 +272,4 @@ export type EngineForPeople = Pick<Engine, 'stopTicket' | 'retryTicket' | 'reeva
 export type EngineForSettings = Pick<Engine, 'policyChanged'>
 /** What the Executor tells the Engine, and what its workers ask of it. */
 export type EngineForExecutor = Pick<Engine, 'assignmentStarted' | 'inputsDelivered' | 'inputsRead' | 'turnEnded' | 'deliveryFailed'
-  | 'assignmentInterrupted' | 'report' | 'markUnrelated' | 'handback' | 'followForContext' | 'reply'>
+  | 'assignmentInterrupted' | 'report' | 'markUnrelated' | 'handback' | 'followForContext' | 'reply' | 'failure'>
