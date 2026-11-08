@@ -1,0 +1,57 @@
+name: CI
+
+# The security behaviour of the host is the product, so every pull request runs the whole check and the attack-chain tests
+# by name. A change that reopens the attack path fails here even when the rest of the suite still passes.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `pnpm check` is the typecheck, the full test suite and the build.
+      - run: pnpm check
+      # The attack chain is the reason this project exists: run it again under its own name, so a regression names itself in the
+      # job rather than hiding among 1,200 other tests.
+      - name: Attack-chain regression gate
+        run: pnpm vitest run tests/attack-chain.spec.ts
+      # A critical advisory in a shipped dependency fails the build. High and moderate advisories are reported, not gated,
+      # because they are often in transitive packages this project cannot pin yet.
+      - name: Dependency audit (critical, blocking)
+        run: pnpm audit --prod --audit-level critical
+      - name: Dependency audit (report)
+        run: pnpm audit --prod --audit-level high
+        continue-on-error: true
+
+  sandbox:
+    name: Worker sandbox on macOS
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Seatbelt is the only sandbox this runner has, and the spec's confined-command tests skip themselves elsewhere.
+      - run: pnpm vitest run tests/sandbox.spec.ts

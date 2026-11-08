@@ -16,7 +16,7 @@ const policy = (overrides = {}) => ({ workspace: '/s/work/t1', stateDir: '/s', r
 
 describe('choosing a sandbox', () => {
   it('uses Seatbelt on macOS and bubblewrap on Linux', () => {
-    expect(chooseSandbox('auto', 'darwin', () => false)?.name).toBe('seatbelt')
+    expect(chooseSandbox('auto', 'darwin', program => program === 'sandbox-exec')?.name).toBe('seatbelt')
     expect(chooseSandbox('auto', 'linux', program => program === 'bwrap')?.name).toBe('bubblewrap')
   })
   it('refuses to run agents when this machine has no sandbox and the operator did not turn it off', () => {
