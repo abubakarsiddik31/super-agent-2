@@ -210,7 +210,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** the security behavior from WIP-1 to WIP-6 can regress without anyone noticing.
 - **Fix:** add CI that runs `pnpm check`, a dependency audit and the attack tests, and fails on any regression.
 - **Acceptance:** CI runs on pull requests, and a deliberately reverted guard fails it.
-- **Size:** S. **Depends on:** the repo being public or on GitHub. **Status:** Done (ci/test-02): `.github/workflows/ci.yml` runs `pnpm check`, the attack chain under its own name, and a production audit; a macOS job runs the sandbox spec. A critical advisory fails the build, while high and moderate ones are reported because they sit in transitive packages (see [PKG-04](#pkg-04-a-high-advisory-sits-in-a-production-dependency)).
+- **Size:** S. **Depends on:** the repo being public or on GitHub. **Status:** Done (ci/test-02): `.github/workflows/ci.yml` runs `pnpm check`, the attack chain under its own name, and a production audit; a macOS job runs the sandbox spec. A critical advisory fails the build, while high and moderate ones are reported because they sit in transitive packages (see [PKG-04](#pkg-04-a-high-advisory-sits-in-a-production-dependency)). The first run on a Linux runner failed on two things the suite had never been run against: the sandbox test asked for macOS and the host looked for Seatbelt on the runner, and a late ready signal hid an error the Feishu consumer had already reported. Both are fixed.
 
 ## PKG-01: Rebrand as Super-agent 2.0 without implying DeepSeek's involvement
 - **Evidence:** `package.json:2` (`dsh-superagent`), `package.json:3` (author is the DeepSeek Harness team), `README.md:3` and `:7`, `LICENSE:3`.
