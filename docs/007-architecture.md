@@ -378,6 +378,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
 | `src/infra/paths.ts` | The package's root, where packaged files are |
 | `src/infra/text.ts` | Word counts and the chat message limit, `fill` and `sameName` |
+| `src/infra/redact.ts` | `redactSecrets`: credential-shaped text in command output replaced before it reaches a report, a relay or the panel, and a length cap on what a worker's output may carry |
 | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
 | `src/sources/kind.ts` | The `SourceKind` protocol |
 | `src/sources/registry.ts` | `SourceRegistry` |
@@ -457,6 +458,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
 | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
 | `tests/subagent-limits.spec.ts` | A subagent's tools by its ancestry: the worker's work tools when it resolves to a live ticket, and none when the chain is deeper than the cap or a parent is not loaded |
+| `tests/redact.spec.ts` | `redactSecrets`: a token, a key, a private key body, an authorization header and a `name=value` secret are replaced, the text around them survives, and long output is capped |
 | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |
 | `tests/settings.spec.ts` | Settings saves that race a model or account check, a Policy sync that a save outran, and the refusals of the pause, a sync and a block |
 | `tests/views.spec.ts` | What the management views derive from the Store, such as the Thread a dropped message belongs to |

@@ -10,6 +10,9 @@ import { reportRelay, threadFollowedNotice } from '../notices.ts'
 import type { Sessions } from '../sessions.ts'
 import { AcknowledgementSchema, readTool, tool, type Tool } from './tool.ts'
 
+/** The longest summary a worker may report; the router reads only its start, and longer output stays in the ticket directory. */
+const MAX_REPORT_CHARS = 4000
+
 export interface ExecutorToolsHost {
   readonly engine: Pick<EngineForExecutor, 'report' | 'reply' | 'markUnrelated' | 'handback' | 'followForContext'>
   readonly store: Pick<Store, 'tickets' | 'replyStatus' | 'atomic'>
@@ -76,13 +79,15 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       description: 'Report progress, ready, blocked, failed or dropped, as the work and handoff sections say.',
       schema: z.object({
         state: z.enum(['progress', 'ready', 'blocked', 'failed', 'dropped']),
-        summary: z.string().min(1),
+        summary: z.string().min(1).max(MAX_REPORT_CHARS).describe(`At most ${MAX_REPORT_CHARS} characters; longer output belongs in the ticket directory, and the router sees only its start.`),
         human_action: z.string().trim().min(1).max(1000).nullish().describe('One concrete question for a person, also with state=progress; omit to keep the pending one, null to clear it.'),
         question_for_trigger_id: z.string().optional().describe('With human_action: the human message that raised the question, which is asked where that person wrote.'),
         pr_number: z.number().int().positive().nullish().describe(`The ticket's PR: its source PR, or one by ${host.github.deployment.github.login} from a branch named after this ticket (DSH_SUPERAGENT_NAME).`),
         reply_to_trigger_id: z.string().optional().describe('The explicit human question this report answers; never for ordinary progress.'),
       }).strict(),
       execute: async (args, signal) => {
+        // The schema caps the summary too; this names the limit in the worker's own words when a transport skips the schema.
+        if (args.summary.length > MAX_REPORT_CHARS) throw new Error(`The summary is ${args.summary.length} characters; the limit is ${MAX_REPORT_CHARS}. Keep long output in the ticket directory and report a short result.`)
         const current = host.store.tickets.get(ticketId)
         if (!current || !liveTicket(current)) throw new Error('Ticket ended (PR was closed or work finished); do not resume it')
         const pull = args.pr_number != null ? await readPull(host.github, args.pr_number, signal) : undefined

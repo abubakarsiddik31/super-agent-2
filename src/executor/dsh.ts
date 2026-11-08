@@ -14,6 +14,7 @@ import { executionRoot, type Variable } from '../app/execution-environment.ts'
 import type { Sessions } from '../app/sessions.ts'
 import { WorktreeNameSchema } from '../app/assessment.ts'
 import { resultRelay } from '../app/notices.ts'
+import { redactSecrets } from '../infra/redact.ts'
 import type { HealthEntry } from '../infra/health.ts'
 import { cancelled, collectJob, killJobs, runningJobs, stopBackground, stopSubagents, until, untilQuiet } from './background.ts'
 
@@ -253,7 +254,7 @@ export class DshExecutor implements Executor {
       .catch(async (error: unknown) => {
         // Remove an empty directory left by a failed prepare command so a later retry does not treat it as already prepared.
         await rmdir(directory).catch(() => { /* Absent, or holding what the command wrote, which the output explains. */ })
-        throw new PrepareFailed(`The prepare command failed: ${error instanceof Error ? error.message : String(error)}`)
+        throw new PrepareFailed(`The prepare command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`)
       })
     await mkdir(directory, { recursive: true })
     await verifyDirectory(directory, this.host.ports.subprocess, this.host.lifetime)
@@ -412,11 +413,16 @@ export class DshExecutor implements Executor {
     if (!ticket || !liveTicket(ticket) || latestAssignment(ticket)?.id !== assignmentId) return
     this.failed(ticketId, String(error))
   }
-  /** Records a `failed` report on the ticket and relays the failure to the main Session in one transaction. */
+  /**
+   * Records a `failed` report on the ticket and relays the failure to the main Session in one transaction. The text is
+   * redacted and capped first: a failed command prints what it printed, and that output would otherwise reach the router
+   * and the panel with any credential in it.
+   */
   private failed(ticketId: string, summary: string): void {
+    const safe = redactSecrets(summary)
     this.host.store.atomic(() => {
-      const updated = this.host.engine.report(ticketId, { state: 'failed', summary })
-      this.relay(resultRelay(updated, 'failed', summary))
+      const updated = this.host.engine.report(ticketId, { state: 'failed', summary: safe })
+      this.relay(resultRelay(updated, 'failed', safe))
     })
   }
   private relay({ id, text }: { id: string; text: string }): void { this.host.sessions.relay(id, text) }

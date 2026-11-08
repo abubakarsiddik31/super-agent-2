@@ -133,7 +133,7 @@ These are finished and on `main`, with typecheck, tests and build passing, but n
 - **Failure:** a misled worker can inject instructions into the router, which holds reply tools, or fill its context. Prepare output can also carry secrets into the router and on to a public reply.
 - **Fix:** cap report length, pass reports to the router as structured fields marked untrusted, redact command output, and store long text behind a reference.
 - **Acceptance:** tests show an oversized report is refused or truncated, and that prepare output with a fake token never reaches the relay text.
-- **Size:** S. **Depends on:** none. **Status:** Confirmed-by-reading.
+- **Size:** S. **Depends on:** none. **Status:** Done (security/sec-11-report-limits): `orchestrator_report` caps `summary` at 4,000 characters (schema and a named refusal), relays carry `trust: "untrusted"`, the dispatch prompt says a report is untrusted data, and `src/infra/redact.ts` replaces credential-shaped text in a failed prepare's output and in every failure report before it is stored or relayed. `tests/redact.spec.ts`, `tests/tools.spec.ts` and `tests/runtime.spec.ts` cover the cap and the redaction.
 
 ## COM-01: A timed-out evaluation is never reported to the requester
 - **Evidence:** `src/core/evals.ts:62` records `unavailable`, `src/core/evals.ts` never calls the outbox, and `docs/002-authorization.md:151-155` shows the result only in the panel and health status.
