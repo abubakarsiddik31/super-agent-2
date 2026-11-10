@@ -151,23 +151,20 @@ Each item in [ISSUES.md](ISSUES.md) has evidence, a failure scenario, acceptance
 
 ### P1: required for a credible release
 
+Seven P1 items landed on 8 November and are recorded as Done in [ISSUES.md](ISSUES.md): SEC-08, SEC-10, SEC-11, COM-01, COM-02, COST-02 and TEST-02.
+
 **Security**
 
 | ID | Issue | How we're fixing it |
 |---|---|---|
 | SEC-06 | Workers read untrusted text with no host-level marking | Label trust on every read, and require approval for risky actions after reading untrusted text |
 | SEC-07 | No secret scanning or limits on outgoing data | Scan messages and pushes, and enforce a network allowlist |
-| SEC-08 | Removing someone's access doesn't stop their work | Revalidate on every policy change, and stop or pause affected tickets |
 | SEC-09 | Merge and branch safety rely on prompts | Check branch protection at setup, and refuse merges and out-of-scope pushes at the broker |
-| SEC-10 | Deeply nested subagents may escape tool limits | Fail closed: no resolved ancestry means no tools, with a depth cap |
-| SEC-11 | Worker reports pass unbounded text to the router | Cap length, mark as untrusted, and redact command output |
 
 **Communication**
 
 | ID | Issue | How we're fixing it |
 |---|---|---|
-| COM-01 | A timed-out evaluation is never reported to the requester | The host sends a templated failure reply, once per message |
-| COM-02 | Failure notices depend on the router choosing to send them | The host sends them, and the router may add detail |
 | COM-03 | Requests the host refuses get silence | An optional, rate-limited fixed reply, off by default on public repos |
 
 **Error handling and reliability**
@@ -184,9 +181,7 @@ Each item in [ISSUES.md](ISSUES.md) has evidence, a failure scenario, acceptance
 | ID | Issue | How we're fixing it |
 |---|---|---|
 | COST-01 | No per-ticket limits on spend, time or turns | Hard caps enforced by the host, with a templated stop message |
-| COST-02 | No rate limit on incoming events | Per-thread and per-sender limits before any model call, plus a circuit breaker |
 | TEST-01 | Nothing tests against the real harness | A smoke test that boots the real harness with a fake model |
-| TEST-02 | No CI or security regression gate | CI that runs checks, a dependency audit and the attack tests |
 | PKG-01 | The code and package still use the original name | Rename to `super-agent-2`, keeping the MIT notice and the unaffiliated line |
 | DOC-01 | No threat model or security policy | A `SECURITY.md` covering what is and isn't protected |
 
